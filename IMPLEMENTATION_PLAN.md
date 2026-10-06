@@ -1,10 +1,10 @@
-# LargeText — Technical Implementation Plan (v1, revision 3)
+# LargeText — Technical Implementation Plan (v1, revision 4)
 
 > Goal of v1: a working, hands-on prototype of the "large text overlay" idea (see `idea.md`) that is
 > **architecturally clean** so it can grow once product opinions form. Delivered as a **Swift package**
 > that an Xcode AppKit app target imports and starts with two lines of code.
 >
-> Revision 3 incorporates two independent review rounds; see §9.
+> Revision 4 incorporates three independent review rounds; see §9.
 
 ---
 
@@ -55,12 +55,15 @@ zoom keys, readable from across the room, and a submit shortcut.
 - `level = .statusBar + 1` and `collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient,
   .ignoresCycle]`. This keeps the overlay above full-screen video on the current Space. It also sits above
   modal system prompts, so **we never trigger a permission prompt while a session is active**.
-- **Resign-key rule:** if the panel loses key status *and the new key window is not ours*, the overlay
-  emits `.cancel(reason: .lostFocus)` and the draft is kept. This covers ⌘Tab, Spotlight, clicks on another
-  display, screen lock and sleep. Resign-key caused by our own `dismiss()` is suppressed: once a
-  programmatic dismiss starts, the controller stops emitting intents.
-- Clicking the dimmed backdrop counts as cancel (draft kept).
-- The HUD is a separate **non-key** `NSPanel`, so it never steals key status.
+- **Resign-key rule:** *any* resign-key that our own `dismiss()` did not cause emits
+  `.cancel(.lostFocus)`, and the draft is kept. This covers ⌘Tab, Spotlight, clicks on another display,
+  screen lock and sleep. Once a programmatic dismiss starts, the controller stops emitting intents.
+- Clicking the dimmed backdrop emits `.cancel(.userCancelled)`, and the draft is kept.
+- The backdrop covers `screen.frame`, including that screen's menu bar. With a second display, the other
+  screen's status item is still reachable. Its *Open Large Editor* action calls `toggle()`, which commits,
+  exactly like the hotkey. No special state is needed.
+- The HUD is a separate **non-key** `NSPanel` with the same level and `collectionBehavior` as the overlay.
+  It is therefore visible over full-screen video and never steals key status.
 - **Known limitation:** clicking into the Character Viewer (⌃⌘Space) makes another process key, so the
   session cancels with the draft kept. IME candidate windows and Dictation do not take key status, so they
   are unaffected (*spike 0e* confirms this).
@@ -87,14 +90,18 @@ zoom keys, readable from across the room, and a submit shortcut.
   | ⇧↩ / ⌥↩ | `.newline` | `insertNewlineIgnoringFieldEditor` locally |
   | ⎋ | `.cancel` | intent `.cancel(.userCancelled)` |
   | ⌘= / ⌘+ (⌘⇧=) / ⌘- / ⌘0 | `.zoom(step)` | intent `.zoom` |
-  | ⌘Z / ⌘⇧Z / ⌘X / ⌘C / ⌘V / ⌘A | `.standardEdit(edit)` | `NSApp.sendAction(selector, to: nil, from: textView)` locally |
-  | global hotkey (handled by Kit) | — | coordinator → `overlay.requestCommit(.insert)` |
+  | ⌘Z / ⌘⇧Z | `.standardEdit(.undo / .redo)` | `undoManager?.undo()` / `redo()`, guarded by `canUndo` / `canRedo` |
+  | ⌘X / ⌘C / ⌘V / ⌘A | `.standardEdit(…)` | direct calls on the text view: `cut(nil)`, `copy(nil)`, `paste(nil)`, `selectAll(nil)` |
+  | global hotkey (handled by Kit) | — | `coordinator.toggle()` → the normal commit path (§3.5) |
 
   Zoom keys are matched by the character first, then by key code, so they work across keyboard layouts.
-  The standard editing commands are dispatched deterministically. **The package never installs or changes
-  `NSApp.mainMenu`**, which is the host app's business.
-- **Committing mid-composition:** before reading the final text, the editor calls
-  `inputContext?.discardMarkedText()`.
+  Standard edits are **direct method calls on the text view**, not responder-chain `sendAction`. That
+  doesn't depend on `NSApp.keyWindow` while the app is inactive. **The package never installs or changes
+  `NSApp.mainMenu`**, which is the host app's business. `performKeyEquivalent` returns `false` unless
+  `window?.firstResponder === self`, because AppKit calls it on every view in the window.
+- **Undo is reset per session:** `undoManager?.removeAllActions()` in `present`, because the panel is reused.
+- **Committing mid-composition:** `dismiss()` calls `inputContext?.discardMarkedText()` before reading the
+  text.
 
 ### 2.4 Capturing the target
 Done at hotkey time, *before* the overlay is shown. The latency target is about 150 ms; it is measured and
@@ -113,10 +120,14 @@ logged, not enforced.
 6. *Spike 0j:* setting `AXManualAccessibility = true` on Electron app elements, so focus and selection can be
    read. Do **not** set `AXEnhancedUserInterface`; it breaks Chrome's window animations.
 
-**Classification:**
-- `elementKind == nil` (no permission, or Chromium returned nothing) means *unknown*. **We still paste.**
-  This is the common Chrome-omnibox case.
-- `.notEditable` (a definite non-text role) means copy only.
+**Classification** (pure `static func ElementKind.classify(role:subrole:) -> ElementKind?`, unit-tested):
+- `elementKind == nil` means *unknown*, and **we still paste**. Unknown covers three cases:
+  - there is no permission;
+  - Chromium returned nothing (the common Chrome-omnibox case);
+  - the role is ambiguous, e.g. `AXGroup` or `AXWebArea`. Contenteditable editors such as Gmail compose,
+    Slack and Notion report these roles.
+- `.notEditable` applies only to an **explicit list** of roles that are definitely not text: button, list,
+  outline, table, image, menu and menu item, toolbar, scroll bar, slider. Copy only.
 - `.secureText` means refuse.
 
 **Prefill:** the selected text, if any. Pasting replaces the selection, so "edit selection → commit"
@@ -129,44 +140,60 @@ question.
 
 ### 2.5 Inserting text
 
-**Routing (`RoutingTextInserter`, the single source of truth):**
+**Route (`InsertionRoute.decide(target:permissions:)`).** A pure function and the single source of truth.
+The coordinator calls it to choose the header hints when the overlay opens, and the inserter calls it again
+at commit time.
 
-| Condition (checked at commit time) | Result |
+| Condition | Route |
 |---|---|
-| event posting not permitted | copy only, `.permissionMissing` |
-| `target.application == nil` (LargeText was frontmost) | copy only, `.noEditableTarget` |
-| `elementKind == .notEditable` | copy only, `.noEditableTarget` |
-| otherwise (including unknown element) | `PasteboardTextInserter` |
+| event posting not permitted | `.copyOnly(.permissionMissing)` |
+| `target.application == nil` (LargeText was frontmost) | `.copyOnly(.noEditableTarget)` |
+| `elementKind == .notEditable` | `.copyOnly(.noEditableTarget)` |
+| otherwise (including an unknown element) | `.paste` |
 
-**`PasteboardTextInserter`** (logic in Core, thin primitives in Platform):
-1. **Guard.** Wait `timing.focusReturnDelay` (the default is set by spike 0a). If
-   `focus.frontmostProcessIdentifier != target.pid`, copy only with `.targetChanged`. A mismatch between the
-   focused element and the captured one is only **logged**: web content hands out fresh AX wrappers, so a
-   `CFEqual` comparison gives false negatives.
-2. **Text policy.** `InsertionTextPolicy.prepare(text, for: target)` replaces newlines with spaces when the
-   target is single-line (`AXTextField`, `AXSearchField`, `AXComboBox`) or a known terminal (Terminal,
-   iTerm2, Ghostty, Warp, …). Pasting multi-line text into a shell can execute commands.
-3. **Snapshot** the general pasteboard according to `ClipboardRestorePolicy`:
-   - `.restore(maxBytes: 10 MB)` (default). `dyn.*` and file-promise types are skipped. If the size
-     exceeds the budget, the snapshot is marked incomplete and the restore is lossy.
-   - `.none`. The clipboard is overwritten and not restored; the HUD can say so. This is the escape hatch
-     for the macOS 15.4+ pasteboard privacy prompts.
-4. **Write** our string after `clearContents()` and `prepareForNewContents(with: .currentHostOnly)`, so it
-   doesn't sync over Universal Clipboard. Add the `org.nspasteboard.TransientType` and
-   `org.nspasteboard.AutoGeneratedType` markers.
-5. **Wait for modifiers to be released.** Poll `keystrokes.pressedModifiers` (HID state) every
-   `pollInterval`, up to `maxPolls` times. Because the limit is a poll *count*, tests with an instant sleeper
-   cannot hang. If keys are still held, the result is copy only with `.modifiersHeld`. ⌘V is never posted
-   in that state, because a held ⌘ would turn the submit ↩ into ⌘↩ (a new browser tab).
-6. **Post** ⌘↓ V↓ V↑ ⌘↑ from a `.privateState` event source with explicit flags, to `.cghidEventTap`. The
+**`PasteboardTextInserter`** is the only live `TextInserting`. Its logic lives in Core; Platform supplies thin
+primitives. Every copy-only exit goes through one helper, `ClipboardWriter.copy(text, reason:) ->
+InsertionOutcome`. That helper writes **non-transient**, current-host-only text: the user is expected to
+paste it by hand, so clipboard-manager history is fine here.
+
+1. **Route.** `.copyOnly(reason)` → `ClipboardWriter`, done.
+2. **Focus-return guard.** Wait `timing.focusReturnDelay` (default from spike 0a). Then compare
+   `focus.keyboardFocusProcessIdentifier` with `target.pid`. When AX is trusted, that value is the system-wide
+   `kAXFocusedApplicationAttribute`, which shows whether keyboard focus actually came back; otherwise it is
+   the frontmost pid. On a mismatch, copy only with `.targetChanged`. A focused-*element* mismatch is only
+   logged, because web content hands out fresh AX wrappers.
+3. **Wait for modifiers to be released.** Poll `keystrokes.pressedModifiers` (HID state) every
+   `pollInterval`, up to `maxModifierPolls` times. The limit is a poll *count*, so tests with an instant
+   sleeper cannot hang. If keys are still held, copy only with `.modifiersHeld`. ⌘V is never posted then:
+   a held ⌘ would turn the submit ↩ into ⌘↩, which opens a new browser tab. This step runs *before* the
+   snapshot, so a failed wait never costs a pasteboard read.
+4. **Text policy.** `InsertionTextPolicy.prepare(text, for: target)` replaces newlines with spaces when
+   `InsertionTextPolicy.flattensNewlines(for: target)` is true. That is the case for single-line roles
+   (`AXTextField`, `AXSearchField`, `AXComboBox`) and for known terminal bundle ids (Terminal, iTerm2,
+   Ghostty, Warp, …). Pasting multi-line text into a shell can execute commands.
+5. **Snapshot** the general pasteboard according to `preferences.clipboardRestore`:
+   - `.restore(maxBytes: 10 MB)` (default). Skips `dyn.*` and file-promise types. Over budget → the snapshot
+     is marked incomplete and the restore is lossy.
+   - `.none`. No snapshot and no restore, so the outcome is `.inserted(clipboardOverwritten: true)` and the
+     HUD says "Your clipboard now contains this text". This is the escape hatch for the macOS 15.4+
+     pasteboard privacy prompts. Set it with `defaults write <bundle id> LargeText.clipboardRestore none`;
+     v1 has no settings UI.
+6. **Write** our string. Call `clearContents()`, then `prepareForNewContents(with: .currentHostOnly)`, then
+   add the `org.nspasteboard.TransientType` and `org.nspasteboard.AutoGeneratedType` markers.
+7. **Post** ⌘↓ V↓ V↑ ⌘↑ to `.cghidEventTap`, from a `.privateState` event source with explicit flags. The
    key code for "v" comes from the **ASCII-capable** layout
-   (`TISCopyCurrentASCIICapableKeyboardLayoutInputSource` plus `UCKeyTranslate` with ⌘ state). The fallback
-   is `kVK_ANSI_V`.
-7. **Submit** (optional): post ↩.
-8. **Restore** after `restoreDelay` (600 ms), but only if `changeCount` still equals the value we produced.
+   (`TISCopyCurrentASCIICapableKeyboardLayoutInputSource` + `UCKeyTranslate` with ⌘ state), falling back to
+   `kVK_ANSI_V`.
+8. **Submit** (optional): post ↩.
+9. **Return the outcome**, then **restore in a tail task**: after `restoreDelay` (600 ms), restore the
+   snapshot only if `changeCount` still equals the value we produced. A new commit in the meantime changes
+   `changeCount`, so the stale restore is skipped safely. The task is kept in `pendingRestore` (package),
+   so tests can `await` it.
 
-Strategies listed for later, behind the same protocol: AX `kAXSelectedTextAttribute` set with read-back;
-`CGEvent` unicode typing; pressing the target's *Edit › Paste* menu item via AX.
+Strategies for later, behind the same protocol:
+- set AX `kAXSelectedTextAttribute`, then read it back to verify;
+- type the text as `CGEvent` unicode keystrokes;
+- press the target's *Edit › Paste* menu item via AX.
 
 ### 2.6 Permissions
 - There are two checks: `AXIsProcessTrusted()` (reading focus) and `CGPreflightPostEventAccess()` (posting).
@@ -196,25 +223,30 @@ Strategies listed for later, behind the same protocol: AX `kAXSelectedTextAttrib
 ## 3. Architecture
 
 ### 3.1 Principles
-- **One coordinator owns the session.** Views emit *intents*. The coordinator decides, and then pushes
-  *chrome* (everything except the text) back to the view. **Exception, by design:** the text view owns the
-  text being edited. The text travels only on commit, cancel and dismiss, because round-tripping keystrokes
-  would destroy the caret, undo history and IME state.
-- **Every side effect sits behind a protocol (a "port").** Live adapters live in Platform and UI. Simple fakes
-  live in Core (`Fakes/`). Spies and recorders live in TestSupport.
-- **Single composition root.** Kit assembles everything from one `AppEnvironment` value. A debug scenario
-  is just a mutation of that value before assembly.
-- **Initializers have no side effects.** No observers, prompts, Carbon handlers or windows are created in
-  `init`; they come in `start()` or on first use. This makes it free to construct a full live environment and
-  then replace parts of it.
-- **Pure core.** Domain logic imports only Foundation, plus `os` for logging.
-- **Swift 6, main-actor by design.** AppKit, AX and NSPasteboard are used on the main actor. Ports are
-  declared `@MainActor protocol …` explicitly, models are not `Sendable`, and there is no
-  `@unchecked Sendable`. The coordinator API is **synchronous** except for the commit path, which uses
-  `async` for the dismiss animation, the sleeps and the paste. No `AsyncStream` and no extra hops.
-- **Access control:** cross-module API uses `package`. The only `public` symbol is `LargeTextApplication`,
-  plus `LaunchConfiguration`. No `public` declaration may expose a `package` type, and the host app never
-  needs `package` symbols.
+- **One coordinator owns the session.** Views emit *intents*; the coordinator decides and pushes *chrome*
+  (everything except the text) back. **Exception, by design:** the text view owns the text being edited.
+  The coordinator gets the text exactly once, from `dismiss()`. Round-tripping keystrokes through the
+  coordinator would destroy the caret, the undo stack and IME state.
+- **Every side effect sits behind a protocol (a "port").** Live adapters are in Platform and UI. Simple fakes
+  are in Core `Fakes/`. Spies and recorders are in TestSupport.
+- **Single composition root.** Kit assembles everything from one `AppEnvironment` value. A scenario is a
+  mutation of that value, applied before assembly.
+- **Initializers have no side effects.** No observers, prompts, Carbon handlers or windows in `init`; they come
+  in `start()` or on first use. That makes it free to construct a full live environment and then replace
+  parts of it.
+- **Pure core.** Domain logic imports Foundation, plus `os` for logging.
+- **Swift 6, main-actor by design.**
+  - Reference types (ports, coordinator, adapters) are explicitly `@MainActor`.
+  - Plain value models are explicitly `Sendable`. The exceptions are `FocusTarget` and `ElementHandle`,
+    which wrap an AX object and never leave the main actor.
+  - No `@unchecked Sendable` anywhere.
+- **Testable async.** The coordinator's entry points are `async`. Live callbacks wrap them in
+  `Task { await … }`, and tests `await` them directly. No `AsyncStream`.
+- **Access control:**
+  - Cross-module API is `package`.
+  - The public surface is two types: `LargeTextApplication` (only `run(launch:)`) and
+    `LaunchConfiguration` (only `current`).
+  - No `public` declaration exposes a `package` type.
 - **No third-party dependencies** in v1.
 
 ### 3.2 Package layout & module graph
@@ -223,12 +255,12 @@ Strategies listed for later, behind the same protocol: AX `kAXSelectedTextAttrib
 LargeText/
 ├── Package.swift
 ├── Sources/
-│   ├── LargeTextCore/         Models, ports, coordinator, policies, inserters, Fakes/. Foundation only.
+│   ├── LargeTextCore/         Models, ports, coordinator, InsertionRoute, policies, inserter, Fakes/. Foundation only.
 │   ├── LargeTextPlatform/     Live adapters: Carbon, AX, NSPasteboard, CGEvent, TIS, UserDefaults, NSWorkspace.
 │   ├── LargeTextUI/           AppKit: overlay panel & editor, HUD, status item, #Previews.
-│   └── LargeTextKit/          AppEnvironment, assembly, LargeTextApplication, Scenarios/ (compiled in Debug only).
+│   └── LargeTextKit/          AppEnvironment, Scenario, AppController, LargeTextApplication, LaunchConfiguration.
 └── Tests/
-    ├── LargeTextTestSupport/  Spies & recorders (regular target, test-only consumers, never shipped).
+    ├── LargeTextTestSupport/  Spies & recorders + EventLog (regular target, test-only consumers, never shipped).
     ├── LargeTextCoreTests/
     ├── LargeTextPlatformTests/
     ├── LargeTextUITests/
@@ -237,7 +269,7 @@ LargeText/
 
 ```
                  ┌────────────────┐
-                 │  LargeTextKit  │  composition root · public facade · debug scenarios
+                 │  LargeTextKit  │  composition root · public facade · scenarios
                  └──┬──────────┬──┘
            ┌────────▼──┐    ┌──▼───────┐
            │ Platform  │    │    UI    │      (never import each other)
@@ -251,8 +283,6 @@ LargeText/
 // swift-tools-version: 6.0
 import PackageDescription
 
-let scenarios: [SwiftSetting] = [.define("LARGETEXT_SCENARIOS", .when(configuration: .debug))]
-
 let package = Package(
     name: "LargeText",
     platforms: [.macOS(.v14)],
@@ -261,36 +291,37 @@ let package = Package(
         .target(name: "LargeTextCore"),
         .target(name: "LargeTextPlatform", dependencies: ["LargeTextCore"]),
         .target(name: "LargeTextUI", dependencies: ["LargeTextCore"]),
-        .target(name: "LargeTextKit",
-                dependencies: ["LargeTextCore", "LargeTextPlatform", "LargeTextUI"],
-                swiftSettings: scenarios),
+        .target(name: "LargeTextKit", dependencies: ["LargeTextCore", "LargeTextPlatform", "LargeTextUI"]),
         .target(name: "LargeTextTestSupport", dependencies: ["LargeTextCore"],
                 path: "Tests/LargeTextTestSupport"),          // plain library; must not import Testing
         .testTarget(name: "LargeTextCoreTests", dependencies: ["LargeTextCore", "LargeTextTestSupport"]),
         .testTarget(name: "LargeTextPlatformTests", dependencies: ["LargeTextPlatform"]),
         .testTarget(name: "LargeTextUITests", dependencies: ["LargeTextUI"]),
-        .testTarget(name: "LargeTextKitTests", dependencies: ["LargeTextKit", "LargeTextTestSupport"]),
+        .testTarget(name: "LargeTextKitTests", dependencies: ["LargeTextKit", "LargeTextCore", "LargeTextTestSupport"]),
     ]
 )
 ```
-An explicit `LARGETEXT_SCENARIOS` flag is used instead of `DEBUG`. It says what it does, and it doesn't
-depend on how Xcode maps custom build configurations for packages.
+Scenarios are **compiled unconditionally**: four small enum cases that only run when `--scenario` is passed.
+That keeps `#if` out of the code and gives Kit tests and Release builds the same view of the code. A user
+*could* pass `--scenario` to a Release build. That is harmless: it only swaps in fakes.
 
-Toolchain: Swift Testing needs the Xcode 16+ toolchain. Plain Command Line Tools may lack `Testing`.
+Toolchain: Swift Testing needs the Xcode 16+ toolchain. The plain Command Line Tools may lack `Testing`.
 
-### 3.3 Core models (`LargeTextCore`, `package` access, bodies abbreviated)
+### 3.3 Core models (`LargeTextCore`)
+
+All are `package`; bodies are abbreviated. Everything is `Sendable` except `FocusTarget` and `ElementHandle`.
 
 ```swift
 // ── Input ──────────────────────────────────────────────────────────────
-struct Modifiers: OptionSet, Hashable, Codable { command, option, control, shift }
-struct KeyCombo: Hashable, Codable { var keyCode: UInt32; var modifiers: Modifiers }   // Carbon key code
-enum HotkeyError: Error, Equatable { case unavailable(KeyCombo) }
-enum Keystroke: Equatable { case paste, returnKey }
+struct Modifiers: OptionSet, Hashable, Codable, Sendable { command, option, control, shift }
+struct KeyCombo: Hashable, Codable, Sendable { var keyCode: UInt32; var modifiers: Modifiers }   // Carbon key code
+enum HotkeyError: Error, Equatable, Sendable { case unavailable(KeyCombo) }
+enum Keystroke: Equatable, Sendable { case paste, returnKey }
 
 // ── Target ─────────────────────────────────────────────────────────────
-struct TargetApplication: Equatable { let processIdentifier: Int32; let bundleIdentifier: String?; let localizedName: String }
-enum ElementKind: Equatable { case singleLineText, multiLineText, secureText, notEditable }
-struct ElementHandle { let raw: AnyObject }                  // AXUIElement in production; used for logging only in v1
+struct TargetApplication: Equatable, Sendable { let processIdentifier: Int32; let bundleIdentifier: String?; let localizedName: String }
+enum ElementKind: Equatable, Sendable { case singleLineText, multiLineText, secureText, notEditable }
+struct ElementHandle { let raw: AnyObject }                  // AXUIElement in production; logging only in v1
 struct FocusTarget {
     let application: TargetApplication?   // nil when LargeText itself was frontmost
     let element: ElementHandle?
@@ -301,59 +332,70 @@ struct FocusTarget {
 
 // ── Session ────────────────────────────────────────────────────────────
 struct EditingSession: Identifiable { let id: UUID; let target: FocusTarget }
-enum CommitMode: Equatable { case insert, insertAndSubmit }
-enum CancelReason: Equatable { case userCancelled, lostFocus }        // logged
+enum CommitMode: Equatable, Sendable { case insert, insertAndSubmit }
+enum CancelReason: Equatable, Sendable { case userCancelled, lostFocus }        // logged
 
 // ── Insertion ──────────────────────────────────────────────────────────
-enum InsertionFallbackReason: Equatable { case permissionMissing, noEditableTarget, targetChanged, modifiersHeld }
-enum InsertionOutcome: Equatable { case inserted, copiedToClipboard(InsertionFallbackReason) }
-enum ClipboardRestorePolicy: Equatable { case restore(maxBytes: Int), none }
-struct InsertionTiming: Equatable {
+enum InsertionFallbackReason: Equatable, Sendable { case permissionMissing, noEditableTarget, targetChanged, modifiersHeld }
+enum InsertionRoute: Equatable, Sendable {
+    case paste, copyOnly(InsertionFallbackReason)
+    static func decide(target: FocusTarget, permissions: Permissions) -> InsertionRoute   // §2.5 table
+}
+enum InsertionOutcome: Equatable, Sendable {
+    case inserted(clipboardOverwritten: Bool)                 // true when ClipboardRestorePolicy.none
+    case copiedToClipboard(InsertionFallbackReason)
+}
+enum ClipboardRestorePolicy: Equatable, Codable, Sendable { case restore(maxBytes: Int), none }
+struct InsertionTiming: Equatable, Sendable {
     var focusReturnDelay: Duration        // default from spike 0a (start: 50 ms)
     var pollInterval: Duration            // 20 ms
-    var maxModifierPolls: Int             // 15  (≈300 ms)
+    var maxModifierPolls: Int             // 15 (≈300 ms)
     var restoreDelay: Duration            // 600 ms
     static let `default`: InsertionTiming
 }
-struct PasteboardSnapshot: Equatable {
-    struct Item: Equatable { var dataByType: [String: Data] }
+struct PasteboardSnapshot: Equatable, Sendable {
+    struct Item: Equatable, Sendable { var dataByType: [String: Data] }
     var items: [Item]
     var isComplete: Bool
 }
 
 // ── Presentation ───────────────────────────────────────────────────────
-struct FontSize: Equatable { let points: Double }
-enum ZoomStep: Equatable { case bigger, smaller, reset }
-enum FontSizePolicy {                                         // default 64, 24…200, step 8
+struct FontSize: Equatable, Codable, Sendable { let points: Double }
+enum ZoomStep: Equatable, Sendable { case bigger, smaller, reset }
+enum FontSizePolicy {                                         // default 64, range 24…200, step 8
     static let `default`: FontSize
     static func apply(_ step: ZoomStep, to size: FontSize) -> FontSize
 }
-enum TargetHint: Equatable { case willCopyToClipboard, singleLine }
-struct OverlayChrome: Equatable {                             // everything the overlay draws except the text
+struct TargetHints: Equatable, Sendable {
+    var willCopyToClipboard: Bool         // InsertionRoute.decide(...) is .copyOnly
+    var flattensNewlines: Bool            // InsertionTextPolicy.flattensNewlines(for:)
+}
+struct OverlayChrome: Equatable, Sendable {                   // everything the overlay draws except the text
     var fontSize: FontSize
     var targetName: String?               // "Typing into Safari"
     var targetBundleIdentifier: String?   // UI resolves the icon; Core never sees NSImage
     var targetFrame: CGRect?              // UI picks the screen
-    var hint: TargetHint?
+    var hints: TargetHints
 }
-struct OverlayIntent: Equatable {                             // tagged with its session; stale ones are ignored
+struct OverlayIntent: Equatable, Sendable {                   // tagged with its session; stale ones are ignored
     let sessionID: UUID
     let kind: Kind
-    enum Kind: Equatable {
-        case commit(CommitMode, text: String)
-        case cancel(CancelReason, text: String)
+    enum Kind: Equatable, Sendable {
+        case commit(CommitMode)
+        case cancel(CancelReason)         // ⎋, backdrop click (.userCancelled); resign key (.lostFocus)
         case zoom(ZoomStep)
     }
 }
-enum Notice: Equatable {
+enum Notice: Equatable, Sendable {
     case copiedToClipboard(InsertionFallbackReason)
+    case clipboardReplaced                // inserted with ClipboardRestorePolicy.none
     case secureFieldUnsupported
     case hotkeyUnavailable(KeyCombo)
 }
 
 // ── Permissions ────────────────────────────────────────────────────────
-enum PermissionStatus: Equatable { case granted, denied }
-struct Permissions: Equatable { var accessibility: PermissionStatus; var eventPosting: PermissionStatus }
+enum PermissionStatus: Equatable, Sendable { case granted, denied }
+struct Permissions: Equatable, Sendable { var accessibility: PermissionStatus; var eventPosting: PermissionStatus }
 ```
 
 ### 3.4 Ports (protocols) in Core
@@ -366,7 +408,8 @@ struct Permissions: Equatable { var accessibility: PermissionStatus; var eventPo
 
 @MainActor protocol FocusCapturing: AnyObject {
     func captureFocus() -> FocusTarget
-    var frontmostProcessIdentifier: Int32? { get }            // pre-insertion guard
+    /// System-wide kAXFocusedApplicationAttribute pid when AX is trusted, else the frontmost app's pid.
+    var keyboardFocusProcessIdentifier: Int32? { get }
 }
 
 @MainActor protocol PermissionsProviding: AnyObject {
@@ -379,7 +422,8 @@ struct Permissions: Equatable { var accessibility: PermissionStatus; var eventPo
     var changeCount: Int { get }
     func snapshot(maxBytes: Int) -> PasteboardSnapshot
     func restore(_ snapshot: PasteboardSnapshot)
-    @discardableResult func writeTransientString(_ string: String) -> Int   // returns the new changeCount
+    /// Clears, sets .currentHostOnly, writes; `transient` adds the nspasteboard.org markers. Returns the new changeCount.
+    @discardableResult func write(_ string: String, transient: Bool) -> Int
 }
 
 @MainActor protocol KeystrokeSending: AnyObject {
@@ -400,13 +444,13 @@ struct Permissions: Equatable { var accessibility: PermissionStatus; var eventPo
 protocol Sleeper: Sendable { func sleep(for duration: Duration) async throws }
 
 @MainActor protocol OverlayPresenting: AnyObject {
-    /// `initialText` is applied once and fully selected if non-empty; afterwards the view owns the text.
+    /// Resets undo; `initialText` is applied once and fully selected if non-empty. Afterwards the view owns the text.
     func present(sessionID: UUID, initialText: String, chrome: OverlayChrome,
                  intents: @escaping @MainActor (OverlayIntent) -> Void)
     func update(_ chrome: OverlayChrome)                     // never touches the text
-    func requestCommit(_ mode: CommitMode)                   // hotkey toggle → view emits the normal .commit
-    /// Stops emitting intents immediately, orders out, returns the text at that moment.
-    @discardableResult func dismiss() async -> String
+    /// Stops emitting intents immediately, discards marked text, orders out (fade),
+    /// and returns the text. This is the ONLY way the coordinator obtains the text.
+    func dismiss() async -> String
 }
 
 @MainActor protocol NoticePresenting: AnyObject { func show(_ notice: Notice) }
@@ -417,19 +461,20 @@ protocol Sleeper: Sendable { func sleep(for duration: Duration) async throws }
 ```swift
 @MainActor
 final class EditingSessionCoordinator {
-    enum Phase: Equatable { case idle, editing(sessionID: UUID), closing(sessionID: UUID) }
+    enum Phase: Equatable, Sendable { case idle, editing(sessionID: UUID), closing(sessionID: UUID) }
 
     private(set) var phase: Phase = .idle
-    var onPhaseChange: ((Phase) -> Void)?                     // single consumer: the status item
     private var session: EditingSession?
     private var draft: String?                                // last cancelled text, in memory only
 
     init(dependencies: CoreDependencies)
-    func toggle()                                             // hotkey & menu
+    func toggle() async                                       // hotkey & menu & present-on-launch
+    func handle(_ intent: OverlayIntent) async                // from the overlay
 }
 
 struct CoreDependencies {
     var focus: any FocusCapturing
+    var permissions: any PermissionsProviding                 // for TargetHints (InsertionRoute)
     var inserter: any TextInserting
     var overlay: any OverlayPresenting
     var notices: any NoticePresenting
@@ -437,71 +482,96 @@ struct CoreDependencies {
 }
 ```
 
-**Transition table.** Each row is a unit test. Every exit path enters `closing` **before** awaiting anything.
+Live wiring:
+- Kit's hotkey handler calls `Task { await coordinator.toggle() }`.
+- The coordinator itself builds the `intents` closure it passes to `present(...)`:
+  `{ [weak self] intent in Task { await self?.handle(intent) } }`.
+- Each entry point sets `phase` **synchronously, before its first `await`**. Main-actor tasks run in order,
+  so a second task queued behind the first always sees `closing`.
+- Tests call `handle(_:)` directly and never invoke the closure captured by `SpyOverlay`.
+
+`closing` ends as soon as `insert` returns, which happens right after the keystrokes are posted. The
+600 ms clipboard restore runs afterwards as a tail task (§3.6), so the hotkey is responsive again
+immediately.
+
+**Transition table.** Each row is a unit test.
 
 | Phase | Event | Effect → next phase |
 |---|---|---|
-| idle | `toggle()`, target `.secureText` | notice `.secureFieldUnsupported` → idle |
-| idle | `toggle()` | capture focus; initial text = selection ?? draft ?? ""; chrome.hint from target → present → **editing** |
-| editing | `toggle()` | `overlay.requestCommit(.insert)` (the view answers with a `.commit` intent) |
-| editing | `.commit(_, text)` with whitespace-only text | **closing** → dismiss → **idle** (draft untouched) |
-| editing | `.commit(mode, text)` | **closing** → `await dismiss()` → `await inserter.insert` → notice if `.copiedToClipboard` → draft = nil → **idle** |
-| editing | `.cancel(reason, text)` | **closing** → draft = text (if non-blank) → `await dismiss()` → **idle** |
+| idle | `toggle()`, target `.secureText` | notice `.secureFieldUnsupported` → idle (overlay never shown) |
+| idle | `toggle()` | capture focus; initial text = selection ?? draft ?? ""; hints from `InsertionRoute` and `InsertionTextPolicy` → present → **editing** |
+| editing | `toggle()` | same as `.commit(.insert)` |
+| editing | `.commit(mode)` | **closing** → `text = await dismiss()` → if blank → **idle** (draft untouched); else `await inserter.insert` → notice for `.copiedToClipboard` / `clipboardOverwritten` → draft = nil → **idle** |
+| editing | `.cancel(reason)` | **closing** → `text = await dismiss()` → draft = text if non-blank → **idle** |
 | editing | `.zoom(step)` | `FontSizePolicy.apply` → persist → `overlay.update(chrome)` |
-| closing | anything | ignored |
+| closing | `toggle()` or any intent | ignored |
 | any | intent with a stale `sessionID` | ignored |
 
-The draft is always shown fully selected, so a Safari draft reopened over Slack is replaced by the first
-keystroke and never pasted by accident. Permission changes mid-session need no special handling: the
-router checks permissions at commit time.
+The draft always opens fully selected. A draft from Safari reopened over Slack is replaced by the first
+keystroke, so it is never pasted by accident. The router re-reads permissions at commit time, so a
+mid-session permission change needs no extra handling.
 
-### 3.6 Insertion composition (Core)
+### 3.6 Insertion (Core)
 
 ```swift
-final class RoutingTextInserter: TextInserting {
-    init(permissions: any PermissionsProviding, paste: any TextInserting, copyOnly: any TextInserting)
-}
-final class PasteboardTextInserter: TextInserting {
-    init(pasteboard: any PasteboardClient, keystrokes: any KeystrokeSending, focus: any FocusCapturing,
+@MainActor final class PasteboardTextInserter: TextInserting {          // the only live TextInserting
+    init(permissions: any PermissionsProviding, pasteboard: any PasteboardClient,
+         keystrokes: any KeystrokeSending, focus: any FocusCapturing,
          preferences: any PreferencesStore, sleeper: any Sleeper, timing: InsertionTiming = .default)
 }
-final class ClipboardOnlyTextInserter: TextInserting { init(pasteboard: any PasteboardClient) }
-enum InsertionTextPolicy { static func prepare(_ text: String, for target: FocusTarget) -> String }
+@MainActor struct ClipboardWriter {                                     // shared copy-only exit
+    let pasteboard: any PasteboardClient
+    func copy(_ text: String, reason: InsertionFallbackReason) -> InsertionOutcome   // non-transient write
+}
+enum InsertionTextPolicy {
+    static func flattensNewlines(for target: FocusTarget) -> Bool
+    static func prepare(_ text: String, for target: FocusTarget) -> String
+}
 ```
 
-The ordering of guard → policy → snapshot → write → modifier polls → ⌘V → ↩ → delayed conditional restore
-is tested in Core with a fake pasteboard, a recording keystroke sender and an instant sleeper. The modifier
-wait is bounded by a poll count, so these tests cannot hang.
+The steps in §2.5 (route → guard → modifier polls → policy → snapshot → write → ⌘V → ↩ → return →
+conditional restore in `pendingRestore: Task<Void, Never>?`) are tested in Core against TestSupport spies. The modifier wait is bounded by a poll count, so
+tests cannot hang.
 
-`Fakes/` in Core (tiny, Foundation-only, used by both scenarios and tests): `StubFocusCapturer`,
-`FixedPermissions`, `LoggingTextInserter`, `InMemoryPreferencesStore`, `InstantSleeper`.
+**Core `Fakes/`** are tiny and Foundation-only, used by scenarios, the vertical slice and tests:
+`StubFocusCapturer`, `FixedPermissions`, `LoggingTextInserter`, `LoggingNoticePresenter`,
+`InMemoryPreferencesStore`, `InstantSleeper`.
+
+**TestSupport** (tests only):
+- `EventLog`: one shared, ordered array of `RecordedEvent`. Every spy appends to it, so a test can assert
+  ordering across ports, e.g. `[.dismiss, .snapshot, .write, .key(.paste), .key(.returnKey), .restore, .notice(…)]`.
+- `SpyOverlay`: records present, update and dismiss. `dismiss()` can be held open on a test-controlled
+  continuation (`holdDismiss = true`, then `completeDismiss(returning:)`). That is how a test sends a late
+  `.cancel(.lostFocus)` or `toggle()` while the coordinator is in `closing`.
+- `SpyNotices`, `FakePasteboard`, `RecordingKeystrokes` (a scripted `pressedModifiers` sequence),
+  `SpyInserter`, `RecordingSleeper`.
 
 ### 3.7 Live adapters (`LargeTextPlatform`)
 
 | Type | Implements | Notes |
 |---|---|---|
 | `CarbonHotkeyRegistrar` | `HotkeyRegistering` | Installs one `InstallEventHandler` lazily. The C callback gets `Unmanaged` self, then `MainActor.assumeIsolated` (Carbon dispatches on main). |
-| `AccessibilityFocusCapturer` | `FocusCapturing` | §2.4. Pure helpers, unit-tested: `AXGeometry.appKitRect(axPosition:axSize:primaryScreenFrame:)`, `ElementKind(role:subrole:)`, `AXBatchResult`. |
+| `AccessibilityFocusCapturer` | `FocusCapturing` | §2.4. Pure, unit-tested helpers: `AXGeometry.appKitRect(axPosition:axSize:primaryScreenFrame:)`, `ElementKind.classify(role:subrole:) -> ElementKind?` (explicit not-text list; `nil` = unknown), `AXBatchResult`. |
 | `SystemPermissionsProvider` | `PermissionsProviding` | `AXIsProcessTrusted`, `CGPreflightPostEventAccess`, `AXIsProcessTrustedWithOptions`. |
 | `SystemPasteboardClient` | `PasteboardClient` | Takes an `NSPasteboard` in `init` (`.general` live, a named board in tests). Pure `SnapshotTypeFilter`. |
 | `CGEventKeystrokeSender` | `KeystrokeSending` | `KeyboardLayoutResolver` (ASCII-capable layout) and a `.privateState` source. |
-| `UserDefaultsPreferencesStore` | `PreferencesStore` | Keys use the `LargeText.` prefix. |
+| `UserDefaultsPreferencesStore` | `PreferencesStore` | Keys use the `LargeText.` prefix (`fontSize`, `hotkey`, `clipboardRestore`). |
 | `TaskSleeper` | `Sleeper` | `Task.sleep(for:)`. |
 
 ### 3.8 UI (`LargeTextUI`)
 
 | Type | Role |
 |---|---|
-| `OverlayPanel: NSPanel` | Non-activating (set in `init`), borderless, can become key, `.fullScreenAuxiliary`. |
-| `OverlayWindowController` | Implements `OverlayPresenting`. Picks the screen with `ScreenResolver`. Fades for at most 120 ms and respects *Reduce Motion*. Applies the resign-key rule. Suppresses intents during its own dismiss. |
-| `EditorViewController` | Backdrop, card, header (icon, "Typing into Safari", hint), `LargeTextView`, footer hints. Renders `OverlayChrome`. Maps `EditorAction` to intents or local actions. |
-| `LargeTextView: NSTextView` | Key interception (§2.3) and marked-text handling. |
+| `OverlayPanel: NSPanel` | Non-activating (set in `init`), borderless, can become key, `.fullScreenAuxiliary`, level `.statusBar + 1`. |
+| `OverlayWindowController` | Implements `OverlayPresenting`. Picks the screen with `ScreenResolver`. Backdrop covers `screen.frame`. Fades for at most 120 ms and respects *Reduce Motion*. Applies the resign-key rule. Suppresses intents from the start of `dismiss()`. |
+| `EditorViewController` | Backdrop, card, header (icon, "Typing into Safari", hints), `LargeTextView`, footer hints. Renders `OverlayChrome`. Maps `EditorAction` to intents or local actions. |
+| `LargeTextView: NSTextView` | Key interception (§2.3; first-responder guard in `performKeyEquivalent`), marked-text handling, direct standard edits. |
 | `EditorKeyBindings` | Pure function `(KeyInput) -> EditorAction?`. `KeyInput { keyCode, charactersIgnoringModifiers, modifiers }`. `EditorAction { commit(CommitMode), cancel, newline, zoom(ZoomStep), standardEdit(StandardEdit) }`. `StandardEdit { undo, redo, cut, copy, paste, selectAll }`. |
-| `ScreenResolver` | Pure function `(targetFrame?, mouseLocation, [ScreenDescriptor]) -> ScreenDescriptor`, where `ScreenDescriptor { id, frame, visibleFrame }`. Uses the target frame, then the screen under the mouse, then the primary screen. |
-| `HUDNoticePresenter` | Implements `NoticePresenting`. A non-key `NSPanel` with large text that auto-hides after 2.5 s. |
+| `ScreenResolver` | Pure function `(targetFrame?, mouseLocation, [ScreenDescriptor]) -> ScreenDescriptor`, where `ScreenDescriptor { id, frame, visibleFrame }`. Order: target frame, then the screen under the mouse, then the primary screen. |
+| `HUDNoticePresenter` | Implements `NoticePresenting`. A non-key `NSPanel` with the overlay's level and `collectionBehavior` and large text. Auto-hides after 2.5 s. |
 | `StatusItemController` | The menu from §2.7. Re-reads permissions in `menuNeedsUpdate`. Driven by Kit. |
 | `Theme` | All colors and metrics in one place. |
-| `#Preview`s | `EditorViewController` in these states: empty, prefilled, long text, single-line hint, copy-to-clipboard hint. This is the fast loop for visual iteration (macOS 14; select the package scheme in Xcode). |
+| `#Preview`s | `EditorViewController` in these states: empty, prefilled, long text, flattens-newlines hint, will-copy hint. The fast visual loop (macOS 14; select the package scheme in Xcode). |
 
 Overlay visuals (v1, deliberately simple, tuned after hands-on):
 - Backdrop: black at 55% opacity.
@@ -513,81 +583,75 @@ Overlay visuals (v1, deliberately simple, tuned after hands-on):
 ### 3.9 Composition root, running in a given state, host app (`LargeTextKit`)
 
 ```swift
-@MainActor
 package struct AppEnvironment {                    // plain instances; constructing them has no side effects
-    var hotkeys: any HotkeyRegistering
-    var focus: any FocusCapturing
-    var permissions: any PermissionsProviding
-    var pasteboard: any PasteboardClient
-    var keystrokes: any KeystrokeSending
-    var preferences: any PreferencesStore
-    var sleeper: any Sleeper
-    var overlay: any OverlayPresenting
-    var notices: any NoticePresenting
-    var inserterOverride: (any TextInserting)?     // nil → standard Routing(Pasteboard, ClipboardOnly) composition
-    var presentOnLaunch = false
+    package var hotkeys: any HotkeyRegistering
+    package var focus: any FocusCapturing
+    package var permissions: any PermissionsProviding
+    package var pasteboard: any PasteboardClient
+    package var keystrokes: any KeystrokeSending
+    package var preferences: any PreferencesStore
+    package var sleeper: any Sleeper
+    package var overlay: any OverlayPresenting
+    package var notices: any NoticePresenting
+    package var inserterOverride: (any TextInserting)?   // nil → PasteboardTextInserter built from the services above
 
-    static func live() -> AppEnvironment
+    @MainActor package static func live() -> AppEnvironment
+    /// Assembly runs AFTER scenario mutation, so overrides are always respected.
+    @MainActor package func coreDependencies() -> CoreDependencies
 }
 
-/// Assembly happens AFTER scenarios have mutated the environment, so overrides are always respected.
-@MainActor
-package struct AppAssembly {
-    static func coreDependencies(from env: AppEnvironment) -> CoreDependencies
-}
-```
-
-**Kit-owned responsibilities.** These are not ports, and scenarios do not control them:
-- `LargeTextApplication.start()`:
-  1. sets the activation policy;
-  2. builds the coordinator from `AppAssembly`;
-  3. creates the status item;
-  4. registers the hotkey (on `HotkeyError`, shows a notice and the menu item);
-  5. calls `requestAccessibility()` once if access is missing;
-  6. presents the overlay if `presentOnLaunch` is set.
-- `stop()` unregisters the hotkey and removes the status item.
-
-**Scenarios** are compiled only with `LARGETEXT_SCENARIOS`, so Debug only. Each one is a mutation:
-
-```swift
-#if LARGETEXT_SCENARIOS
-enum Scenario: String, CaseIterable {
+package enum Scenario: String, CaseIterable, Sendable {
     case overlayPrefilled  = "overlay-prefilled"   // StubFocusCapturer(Safari, selection "https://www.apple.com"),
-                                                   // LoggingTextInserter, presentOnLaunch
-    case noEditableTarget  = "no-editable-target"  // StubFocusCapturer(.notEditable), real clipboard → HUD
-    case permissionMissing = "permission-missing"  // FixedPermissions(.denied): real routing → copy-only HUD
+                                                   // LoggingTextInserter. Use with --present-on-launch.
+    case noEditableTarget  = "no-editable-target"  // StubFocusCapturer(.notEditable); real clipboard → HUD
+    case permissionMissing = "permission-missing"  // FixedPermissions(.denied); real inserter → copy-only HUD
     case loggingInsertion  = "logging-insertion"   // everything live except LoggingTextInserter
+    // Note: with inserterOverride set, header hints still reflect the real InsertionRoute (expected).
 
-    func apply(to env: inout AppEnvironment)
+    @MainActor package func apply(to env: inout AppEnvironment)   // also swaps in InMemoryPreferencesStore
 }
-#endif
-```
-- Every scenario also swaps in `InMemoryPreferencesStore`, so real settings are never changed.
-- Each scenario documents what stays live. For example, `permission-missing` still uses the real
-  pasteboard, so you can see the actual copy-only behaviour.
-- Visual states such as empty, long text and single-line are covered by `#Preview`s, not scenarios.
 
-```swift
-public struct LaunchConfiguration: Equatable {
-    public var scenarioName: String?               // `--scenario <name>`
-    public var presentOnLaunch: Bool               // `--present-on-launch`
-    public static var current: LaunchConfiguration // parsed from ProcessInfo.arguments
-    init(arguments: [String])                      // pure, unit-tested
+public struct LaunchConfiguration: Equatable, Sendable {
+    package var scenario: Scenario?                // `--scenario <name>`; unknown names are logged and ignored
+    package var presentOnLaunch: Bool              // `--present-on-launch` → coordinator.toggle() after start
+    public static var current: LaunchConfiguration { .init(arguments: ProcessInfo.processInfo.arguments) }
+    package init(arguments: [String])              // pure, unit-tested
 }
 
 @MainActor
-public final class LargeTextApplication: NSObject, NSApplicationDelegate {
-    public init(launch: LaunchConfiguration = .current)   // live() → scenario.apply (if compiled in) → assembly
-    public func start()
-    public func stop()
-    /// Convenience for the host's main.swift: sets itself as delegate and runs NSApplication.
+public enum LargeTextApplication {
+    /// Builds env (live → scenario), creates the AppController, keeps it alive, sets it as the
+    /// delegate, runs NSApplication, then exit(0).
     public static func run(launch: LaunchConfiguration = .current) -> Never
+    private static var controller: AppController?  // NSApplication.delegate is weak
+}
+
+@MainActor
+package final class AppController: NSObject, NSApplicationDelegate {
+    package init(environment: AppEnvironment, launch: LaunchConfiguration)   // stores only; no side effects
+    // applicationDidFinishLaunching → start(); applicationWillTerminate → stop()
 }
 ```
+
+**Kit-owned responsibilities.** These are not ports, and scenarios do not control them.
+
+`AppController.start()`, in order:
+1. Set the activation policy.
+2. Build the coordinator from `environment.coreDependencies()`.
+3. Create the status item.
+4. Register the hotkey: handler → `Task { await coordinator.toggle() }`. On `HotkeyError`, show a notice
+   and a menu item.
+5. Call `requestAccessibility()` once if access is missing.
+6. If `presentOnLaunch`: `Task { await coordinator.toggle() }`.
+
+`stop()` unregisters the hotkey and removes the status item.
+
+Every scenario documents what stays live. For example, `permission-missing` keeps the real pasteboard, so you
+see the actual copy-only behaviour. Purely visual states are covered by `#Preview`s, not scenarios.
 
 **Host Xcode app.** Create a macOS App (AppKit) target, then:
 1. Delete `AppDelegate.swift`, `Main.storyboard` and the `NSMainStoryboardFile` Info.plist key.
-2. Set `LSUIElement = YES`, remove the App Sandbox capability, and keep Hardened Runtime.
+2. Set `LSUIElement = YES`, remove the App Sandbox capability, keep Hardened Runtime.
 3. Sign with your development team (see §6).
 4. Add `main.swift`:
 
@@ -596,98 +660,130 @@ import LargeTextKit
 LargeTextApplication.run()
 ```
 
-(With `@main` on an `NSApplicationDelegate`, the delegate only gets connected when a nib or storyboard
-supplies it. That is why the plan uses an explicit `main.swift`.)
+`@main` on an `NSApplicationDelegate` only works if a nib or storyboard connects the delegate, so we use
+explicit `main.swift` instead. Top-level code in `main.swift` runs on the main actor.
 
-Scenario schemes in Xcode: *Arguments Passed On Launch* = `--scenario overlay-prefilled --present-on-launch`.
+For scenario schemes in Xcode, set *Arguments Passed On Launch* to
+`--scenario overlay-prefilled --present-on-launch`.
 
 ### 3.10 Data flow: one complete commit
 
 ```
 User ⌃⌥⌘T
-  └─▶ CarbonHotkeyRegistrar ─(Kit wiring)─▶ coordinator.toggle()
-        ├─ focus.captureFocus()      → FocusTarget{Safari, .singleLineText, selection:"apple.com", frame}
+  └─▶ CarbonHotkeyRegistrar ─(Kit)─▶ Task { await coordinator.toggle() }
+        ├─ focus.captureFocus()   → FocusTarget{Safari, .singleLineText, selection:"apple.com", frame}
+        ├─ hints = {willCopy: route != .paste, flattensNewlines: true}
         ├─ phase = .editing(id)
-        └─ overlay.present(id, "apple.com" (selected), chrome{64pt, "Safari", .singleLine}, intents)
+        └─ overlay.present(id, "apple.com" (selected), chrome{64pt, "Safari", hints}, intents)
 User types (text lives in LargeTextView), presses ⌘+
   └─▶ EditorKeyBindings → .zoom(.bigger) → intent ─▶ coordinator → prefs.fontSize = 72 → overlay.update
 User presses ⌘↩
-  └─▶ discardMarkedText → intent(id, .commit(.insertAndSubmit, "apple.com/mac")) ─▶ coordinator
-        ├─ phase = .closing(id)
-        ├─ await overlay.dismiss()                (intents suppressed; Safari never stopped being active)
-        ├─ await inserter.insert(...)
-        │     Routing → Pasteboard: focusReturnDelay → pid guard → text policy → snapshot →
-        │     write (.currentHostOnly, transient) → modifier polls → ⌘↓V↓V↑⌘↑ → ↩ →
-        │     sleep 600 ms → restore if changeCount unchanged
-        ├─ outcome .inserted → draft = nil
-        └─ phase = .idle
+  └─▶ intent(id, .commit(.insertAndSubmit)) ─▶ Task { await coordinator.handle(intent) }
+        ├─ phase = .closing(id)                   (synchronously, before any await)
+        ├─ text = await overlay.dismiss()         (intents suppressed, marked text discarded, fade out)
+        ├─ await inserter.insert(text, target, .insertAndSubmit)
+        │     route .paste → focusReturnDelay → focused-app pid guard → modifier polls →
+        │     flatten newlines → snapshot → write (transient, current host) → ⌘↓V↓V↑⌘↑ → ↩ →
+        │     return outcome   (tail task: sleep 600 ms → restore if changeCount unchanged)
+        ├─ outcome .inserted(clipboardOverwritten: false) → draft = nil
+        └─ phase = .idle          (hotkey responsive again while the restore tail runs)
 ```
 
 ---
 
 ## 4. Testing strategy
 
-- **Swift Testing** (`import Testing`), with the Xcode 16+ toolchain.
-- **Core:**
-  - every row of the §3.5 table, including `closing` ignoring a late `.cancel(.lostFocus)` and stale ids;
-  - draft prefill and selection;
-  - router decisions, including unknown element → paste;
-  - `PasteboardTextInserter`: ordering, pid-guard failure, `.modifiersHeld` after `maxModifierPolls`,
-    conditional restore, `ClipboardRestorePolicy.none`, incomplete snapshot;
-  - `InsertionTextPolicy`, `FontSizePolicy`.
+- **Swift Testing** (`import Testing`) with the Xcode 16+ toolchain.
+- **Core coordinator:** every row of the §3.5 table, using `SpyOverlay` with a held `dismiss()`. This
+  covers a late `.cancel(.lostFocus)` or `toggle()` during `closing`, stale ids, blank commits, and draft
+  prefill and selection. Cross-port ordering is asserted on the shared `EventLog`.
+- **Core routing:** for every row of the §2.5 route table, `InsertionRoute.decide` and the `TargetHints`
+  shown in the overlay agree. This includes an unknown element → paste.
+- **`PasteboardTextInserter`:**
+  - full step order;
+  - focused-app pid mismatch → `.targetChanged`;
+  - `.modifiersHeld` after `maxModifierPolls`, with no snapshot taken;
+  - conditional restore;
+  - `ClipboardRestorePolicy.none` → `clipboardOverwritten`;
+  - incomplete snapshot;
+  - copy-only writes are non-transient.
+- **Policies:** `InsertionTextPolicy` (single-line roles and terminal bundle ids), `FontSizePolicy`.
 - **UI (pure):**
-  - `EditorKeyBindings`: ↩ vs ⇧↩ vs ⌘↩; zoom via ⌘= / ⌘⇧= / ⌘- on US and German layouts (by characters and
-    by key code); standard edits; Escape;
+  - `EditorKeyBindings`: ↩ vs ⇧↩ vs ⌘↩; zoom via ⌘=, ⌘⇧= and ⌘- on US and German layouts; standard edits;
+    Escape.
   - `ScreenResolver`.
-- **Platform (pure):** AX geometry flip against a secondary screen with a non-zero origin, `AXBatchResult`
-  error unwrapping, `ElementKind` mapping, `SnapshotTypeFilter`, and a pasteboard round trip on
-  `NSPasteboard(name:)` (never `.general`).
-- **Kit:** `LaunchConfiguration` parsing; for each scenario, that `apply` sets the expected services
-  (type checks).
+- **Platform (pure):**
+  - AX geometry flip against a secondary screen with a non-zero origin;
+  - `AXBatchResult` error unwrapping;
+  - `ElementKind.classify` (`AXGroup` / `AXWebArea` → nil; button → `.notEditable`);
+  - `SnapshotTypeFilter`;
+  - a pasteboard round trip on `NSPasteboard(name:)`, never `.general`.
+- **Kit:**
+  - `LaunchConfiguration` parsing, including unknown scenario names.
+  - One **behavioural** assembly test: apply `permission-missing` to an environment built from TestSupport
+    spies, call `coreDependencies()`, then toggle and commit. Expect a copy-only outcome and a
+    `.copiedToClipboard(.permissionMissing)` notice. This catches assembly-order bugs.
 - **Manual matrix** (`docs/manual-testing.md`):
-  - Safari URL bar, Chrome omnibox, Firefox, TextEdit, Notes, Slack/VS Code;
-  - Terminal/iTerm (newline policy), a password field;
+  - Safari URL bar, Chrome omnibox, Firefox, TextEdit, Notes;
+  - Slack and VS Code (Electron), Gmail compose (contenteditable);
+  - Terminal and iTerm (newline flattening);
+  - a password field (refusal);
   - full-screen video, two displays;
   - Dvorak and Russian layouts, Japanese IME;
-  - ⌘Tab during a session, screen lock during a session.
-- **Logging:** `os.Logger` lines with durations for each session (capture, focus return, paste, restore
-  outcome). These are the numbers for the PRD.
+  - ⌘Tab and screen lock during a session;
+  - ⌘V inside the editor.
+- **Logging:** `os.Logger` lines with durations per session: capture time, focus return time and pid, paste
+  time, restore outcome. These numbers feed the PRD.
 
 ---
 
 ## 5. Milestones
 
 0. **Spike (half a day, throwaway branch).**
-   - a) Focus returns to Safari/Chrome/Electron fields after `orderOut`; measure the delay → `focusReturnDelay`.
+   - a) Focus returns to Safari, Chrome and Electron fields after `orderOut`. Measure the delay, whether
+     focus returns at the start or the end of the fade, and frontmost pid vs `kAXFocusedApplication` pid.
+     The results set `focusReturnDelay`.
    - b) The overlay is visible over a full-screen video Space at `.statusBar + 1`.
    - c) ⌘V via `CGEvent` reaches the Chrome omnibox.
-   - e) IME, Dictation and Character Viewer inside the panel.
-   - f) ⌘Tab, Spotlight, screen lock → resign key.
-   - g) Hotkey registration failure mode; the hotkey under Secure Input.
-   - h) The pasteboard privacy prompt on the current macOS version.
+   - e) IME, Dictation and Character Viewer inside the panel. Undo, redo and paste via direct calls in the
+     non-activating panel.
+   - f) ⌘Tab, Spotlight and screen lock cause resign-key.
+   - g) How hotkey registration fails. Whether the hotkey fires under Secure Input, and while our own panel
+     is key.
+   - h) The pasteboard privacy prompt on the current macOS version. This includes ⌘V *inside the editor*
+     during a session: whether the prompt appears under the overlay.
    - i) Permission granted mid-run, with and without a relaunch.
    - j) `AXManualAccessibility` on an Electron app.
-   (0d was removed: no main menu.)
-1. **Package skeleton.** `Package.swift`, four library targets plus TestSupport, Core models/ports/fakes,
-   empty tests passing.
-2. **Vertical slice ("feel" starts here).** Uses the **final** ports and the **final** coordinator type, with
-   a subset of the table: idle → editing → commit/cancel. Ports without real implementations yet use Core
-   fakes. Includes the real Carbon hotkey, focus capture, overlay panel and pasteboard insertion. *You can
-   start using it here.*
-3. **Core hardening.** The remaining table rows (closing, stale ids, drafts, secure refusal), routing, text
-   policy, guard, modifier wait, and all Core tests. *This milestone only adds rows; it does not restructure.*
-4. **UI polish.** Theme, header and footer, HUD, `#Preview`s, Reduce Motion, multi-display screen choice.
-5. **Kit completion.** Status menu with permission item, the four scenarios plus scheme instructions, the
-   manual-testing checklist.
+1. **Package skeleton.** `Package.swift`; the four library targets plus TestSupport; Core models, ports and
+   fakes; `EventLog` and the spies; empty tests passing.
+2. **Vertical slice ("feel" starts here).** Built on the final ports and the final coordinator type, it
+   includes everything that prevents known misbehaviour:
+   - the coordinator rows idle → editing → commit/cancel, with `closing`, intent suppression and stale-id
+     checks;
+   - the **complete `PasteboardTextInserter`** (guard, modifier wait, snapshot/restore) with
+     `ClipboardWriter` for its `.targetChanged` and `.modifiersHeld` exits, and its ordering tests. The router
+     only ever produces `.paste`;
+   - the real Carbon hotkey, focus capture, overlay panel and editor, and status item;
+   - notices through `LoggingNoticePresenter`.
+
+   *You can start using it here.*
+3. **Core completion.** Drafts, secure refusal, `InsertionRoute` with the copy-only fallbacks and hints,
+   `InsertionTextPolicy`, and the remaining Core tests. *This milestone only adds rows; it does not
+   restructure.*
+4. **UI polish.** Theme, header and footer, `HUDNoticePresenter`, `#Preview`s, Reduce Motion, multi-display
+   screen choice.
+5. **Kit completion.** The status-menu permission item, the four scenarios with scheme instructions, the
+   behavioural assembly test, and the manual-testing checklist.
 6. **Hands-on.** Run the manual matrix and collect opinions for the PRD.
 
 Out of scope for v1:
-- hotkey recorder and settings window, theme customization;
+- hotkey recorder, settings window, theme customization;
 - prefill with the whole field, per-app insertion strategies, entry history;
 - launch at login (`SMAppService.mainApp`), Sparkle updates;
-- activation fallback, a dedicated permission window;
-- a Mac App Store sandbox build;
-- observing system events (resign-key already covers them).
+- an activation fallback, a dedicated permission window;
+- a sandboxed Mac App Store build;
+- system-event observation (resign-key covers it);
+- a host-supplied app delegate (only `run(launch:)` is public).
 
 ---
 
@@ -695,19 +791,20 @@ Out of scope for v1:
 
 | Risk | Mitigation |
 |---|---|
-| ⌘V lands in the wrong app | Resign-key cancels the session; the pid guard after the focus-return delay falls back to copy-only. |
-| Chrome/Electron expose no focused element | Unknown is treated as "paste anyway"; spike `AXManualAccessibility`. |
-| The non-activating panel misbehaves in some app | Spike 0a; add an activation port only if needed. |
-| Paste race (target reads the pasteboard late) | 600 ms restore delay, conditional on `changeCount`; `InsertionTiming` is injectable. |
-| Pasteboard privacy prompts (macOS 15.4+ `NSPasteboard.accessBehavior` preview; enforcement announced) | Spike 0h; `ClipboardRestorePolicy.none`; any related API guarded with `if #available(macOS 15.4, *)`. |
-| The snapshot forces lazy or promised data | Type filter and byte budget; lossy restore. (A time budget can't interrupt a synchronous read, so there isn't one.) |
-| Clipboard managers or Universal Clipboard pick up our text | Transient markers and `.currentHostOnly` (available since 10.12). |
-| Modifiers still held at paste time | HID polling bounded by a count; copy-only with `.modifiersHeld`; `.privateState` source; full ⌘ down/up sequence. |
-| Non-QWERTY or non-Latin layouts | Key code from the ASCII-capable layout; zoom bindings by character and key code. |
-| Multi-line paste executes commands in a terminal | `InsertionTextPolicy` plus the header hint. |
-| A hung target blocks AX | 0.1 s global timeout, batched reads, AX skipped for our own pid. |
-| Overlay level above system prompts | No prompts are triggered during a session. |
-| Hotkey conflicts or refusals | ⌃⌥⌘T default; failure surfaced in a notice and the menu. |
+| ⌘V lands in the wrong app | Resign-key cancels the session. After the focus-return delay, a guard compares the focused-*application* pid (AX) with the target; on mismatch, copy-only. It confirms the app, not the field. The field is assumed to keep first responder, which spike 0a checks. |
+| Chrome/Electron/contenteditable expose no or ambiguous element | Unknown is treated as "paste"; `.notEditable` only for an explicit role list; spike `AXManualAccessibility`. |
+| Non-activating panel misbehaves in some app | Spike 0a; add an activation port only if needed. |
+| Paste race (the target reads late) | 600 ms restore delay, conditional on `changeCount`; `InsertionTiming` is injectable. |
+| Pasteboard privacy prompts (macOS 15.4+ `NSPasteboard.accessBehavior` preview; enforcement announced) | Spike 0h; `ClipboardRestorePolicy.none` with a HUD message; modifier wait happens before the snapshot; any related API guarded by `if #available(macOS 15.4, *)`. |
+| Snapshot forces lazy or promised data | Type filter and byte budget; lossy restore. |
+| Clipboard managers or Universal Clipboard pick up our text | Transient markers on the paste path; `.currentHostOnly` always. |
+| Modifiers still held | HID polling bounded by a count → `.modifiersHeld` copy-only; `.privateState` source; full ⌘ down/up sequence. |
+| Non-QWERTY / non-Latin layouts | ASCII-capable layout for the key code; zoom bindings matched by character and by key code. |
+| Multi-line paste executes commands in a terminal | `InsertionTextPolicy` plus the `flattensNewlines` header hint. |
+| Hung target blocks AX | 0.1 s global timeout, batched reads, AX skipped for our own pid. |
+| Overlay level above system prompts | We never trigger prompts during a session; spike 0h covers the one the system triggers (⌘V inside the editor). |
+| Undo history leaking across sessions | `removeAllActions()` in `present`. |
+| Hotkey conflicts or refusals | ⌃⌥⌘T default; failure surfaced as a notice and a menu item. |
 | Secure Input false positives | Diagnostic only. |
 | **TCC permission resets during development** | Sign Debug builds with your real team (not "Sign to Run Locally"). Never change the bundle id or signing identity between builds, because TCC keys on the designated requirement. After an intentional change, run `tccutil reset Accessibility <bundle id>`. |
 
@@ -715,15 +812,15 @@ Out of scope for v1:
 
 ## 7. Coding conventions
 
-- Swift 6 language mode. Explicit `@MainActor` on ports and on UI and coordination types. No ad-hoc
-  `DispatchQueue.main.async`.
-- One primary type per file. Feature folders inside modules: `Hotkey/`, `Focus/`, `Insertion/`, `Overlay/`,
-  `Permissions/`, `Preferences/`, `Fakes/`.
-- `package` for cross-module API. `public` only for `LargeTextApplication` and `LaunchConfiguration`.
-- Logging uses `os.Logger(subsystem: "LargeText", category: <module>)`.
-- Process-wide singletons (`NSPasteboard.general`, `NSWorkspace.shared`, `NSApp`) are referenced only in
-  adapters and in Kit.
-- Errors are typed enums (typed `throws` where it helps). User-visible failures always become a `Notice`.
+- Swift 6 language mode. Reference types that touch UI, AX, the pasteboard or coordination are explicitly
+  `@MainActor`, and value models are explicitly `Sendable`. No ad-hoc `DispatchQueue.main.async`.
+- One primary type per file. Feature folders: `Hotkey/`, `Focus/`, `Insertion/`, `Overlay/`, `Permissions/`,
+  `Preferences/`, `Fakes/`.
+- `package` for cross-module API. The public surface is two types: `LargeTextApplication` (`run(launch:)`)
+  and `LaunchConfiguration` (`current`).
+- Logging with `os.Logger(subsystem: "LargeText", category: <module>)`.
+- Process-wide singletons (`NSPasteboard.general`, `NSWorkspace.shared`, `NSApp`) only in adapters and Kit.
+- Typed `enum` errors, with typed `throws` where it helps. User-visible failures always become a `Notice`.
 
 ---
 
@@ -781,3 +878,20 @@ Out of scope for v1:
 | `DEBUG` is fragile for packages | `LARGETEXT_SCENARIOS` define in `Package.swift`. |
 | Vertical slice could become a second architecture | The slice uses the final ports and coordinator; later milestones only add rows. |
 | Nice-to-haves | TestSupport `path:`; `package` visibility note; availability notes; `KeyInput` carries characters; text view settings; draft always selected; focused-window frame fallback for screen choice. |
+
+### Round 3 → revision 4
+| Finding | Change |
+|---|---|
+| The coordinator couldn't compute `hint` (no permissions); one hint couldn't show two conditions; terminals had no hint | Pure `InsertionRoute.decide` shared by the coordinator and the inserter; `permissions` in `CoreDependencies`; `TargetHints` struct; `flattensNewlines(for:)`; agreement tests (§2.5, §3.3, §3.5). |
+| Two sources of truth for the text; `requestCommit` re-entrancy | Intents carry no text; `requestCommit` removed; `dismiss()` is the only way to get the text; toggle-while-editing = commit (§3.4, §3.5). |
+| The async commit path couldn't be awaited in tests | `toggle()` / `handle(_:)` are `async`; live code wraps them in `Task`; `SpyOverlay` with a held dismiss; shared `EventLog` (§3.5, §3.6, §4). |
+| Undo/redo via `sendAction(UndoManager.undo)` is wrong; undo history leaked across sessions | Direct calls on the text view; `removeAllActions()` in `present`; `firstResponder` guard (§2.3). |
+| Milestone 2 would have shipped the double-cancel and held-modifier bugs | `closing`, suppression, stale ids and the complete pasteboard inserter moved into the slice; `LoggingNoticePresenter` added (§5). |
+| Scenario flag didn't reach the Kit tests; wrong rationale | Scenarios compiled unconditionally; flag removed (§3.2). |
+| Facade problems: stored static var, unreachable `init(arguments:)`, `run() -> Never` returning, weak delegate, two lifecycles | Computed `current`; `package init(arguments:)`; `run` keeps a static strong reference and calls `exit(0)`; the only public entry is `run(launch:)`; `AppController` owns `start()` / `stop()` (§3.9). |
+| `static let` on non-Sendable models doesn't compile | Value models are explicitly `Sendable`; only `FocusTarget` / `ElementHandle` are not (§3.1, §3.3). |
+| Copy-only inserter couldn't know the reason; logic duplicated | `ClipboardWriter` helper; one live `TextInserting`; router folded into it (§3.6). |
+| `.notEditable` would break contenteditable editors | Explicit not-text role list; `AXGroup` / `AXWebArea` → unknown → paste; Gmail added to the matrix (§2.4). |
+| The pid guard was weaker than claimed | Focused-application pid via AX; claim toned down in §6 (§2.5). |
+| Reviewer follow-up (agreed: ready to implement) | The coordinator builds the `intents` closure; second-display menu bar wording; `ElementKind.classify` returns an optional; Kit tests depend on Core; `ClipboardWriter` in milestone 2; restore moved to a tail task so `closing` ends at paste; public-surface wording; Release-scenario and hint-drift notes. |
+| Nice-to-haves | Resign-key rule simplified; backdrop click defined; backdrop covers the menu bar; `onPhaseChange` dropped; `.clipboardReplaced` notice and `defaults` key; modifier wait before the snapshot; non-transient copy-only writes; `AppAssembly` folded into `AppEnvironment`; explicit `@MainActor` on the inserter; behavioural Kit test; HUD level and spaces behaviour; new spike items. |
