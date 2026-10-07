@@ -167,6 +167,17 @@ package struct AXAttributes {
     package func range(_ attribute: String, for point: CGPoint) throws(AXReadError) -> Range<Int>? {
         try AXValueBox.range(from: parameterized(attribute, AXValueBox.make(point)))
     }
+
+    /// For a parameter that is an opaque value from another call, e.g. an `AXTextMarkerRange`.
+    package func string(_ attribute: String, with parameter: CFTypeRef) throws(AXReadError) -> String? {
+        try parameterized(attribute, parameter) as? String
+    }
+
+    /// For a parameter that is an opaque value from another call, e.g. an `AXTextMarkerRange`. Top-left global
+    /// coordinates, as AX reports them.
+    package func rect(_ attribute: String, with parameter: CFTypeRef) throws(AXReadError) -> CGRect? {
+        try AXValueBox.rect(from: parameterized(attribute, parameter))
+    }
 }
 
 /// Packing and unpacking of `AXValue` and `AXUIElement` values.

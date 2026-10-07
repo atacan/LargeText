@@ -115,7 +115,7 @@ package actor AccessibilityTextReader: TextReading {
         while case let step = ReadPlan.next(after: candidates, granularity: granularity, policy: policy), step != .done {
             guard !Task.isCancelled else { return cancelled(&report) }
             report.steps.append(step)
-            candidates = try runner.run(step, on: ax, pointer: pointer, candidates: candidates)
+            candidates = try runner.run(step, on: ax, pointer: pointer, granularity: granularity, candidates: candidates)
         }
 
         let result = ReadTextChooser.choose(

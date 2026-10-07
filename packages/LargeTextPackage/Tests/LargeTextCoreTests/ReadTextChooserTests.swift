@@ -117,6 +117,34 @@ struct ReadTextChooserTests {
         #expect(text.window == nil)
     }
 
+    /// Marker bounds are optional (`AXBoundsForTextMarkerRange` unsupported): the highlight falls back to the
+    /// element.
+    @Test func webUnitWithoutBoundsUsesTheElementFrame() throws {
+        let result = Self.choose(Self.candidates {
+            $0.webArea = true
+            $0.markerUnits[.sentence] = TextSpan(text: "No bounds for this one.")
+            $0.value = "this"
+        })
+
+        let text = try #require(Self.text(result))
+        #expect(text.source == .unit)
+        #expect(text.sourceFrame == Self.elementFrame)
+        #expect(text.window == nil)
+    }
+
+    /// Only the requested unit counts; a paragraph is never shown for a sentence request.
+    @Test func webUnitOfAnotherGranularityFallsThroughToTheValue() throws {
+        let result = Self.choose(Self.candidates {
+            $0.webArea = true
+            $0.markerUnits[.paragraph] = TextSpan(text: "A whole paragraph. Of two sentences.")
+            $0.value = "Short value"
+        })
+
+        let text = try #require(Self.text(result))
+        #expect(text.text == "Short value")
+        #expect(text.source == .element)
+    }
+
     @Test func nativeUnitIsSegmentedFromTheWindowAndKeepsIt() throws {
         let window = TextWindow(text: "First one. Second one here. Third.", start: 1_000, indexAtPointer: 1_015)
         let result = Self.choose(Self.candidates(role: "AXTextArea") { $0.window = window })

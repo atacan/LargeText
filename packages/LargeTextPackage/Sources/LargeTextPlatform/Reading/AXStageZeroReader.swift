@@ -20,30 +20,28 @@ package struct AXStageZeroReader {
         kAXSizeAttribute,
     ]
 
-    /// Undocumented; supported by elements inside WebKit, Chromium and Gecko web content.
-    static let textMarkerForPosition = "AXTextMarkerForPosition"
-    static let webAreaRole = "AXWebArea"
-    /// Bounds the parent walk for browser chrome (toolbars, tabs) that never reaches a web area.
-    static let maxWebAreaWalkDepth = 8
-    static let webAreaWalkStopRoles: Set<String> = [kAXWindowRole, kAXApplicationRole]
-
     private let primaryScreenFrame: CGRect
 
     package init(primaryScreenFrame: CGRect = AXGeometry.primaryScreenFrame()) {
         self.primaryScreenFrame = primaryScreenFrame
     }
 
-    /// Two AX calls, plus at most `2 × maxWebAreaWalkDepth` for a browser or Electron element that doesn't
-    /// support text markers itself. Empty strings come back as `nil`.
+    /// Two AX calls, plus at most `2 × AXTextMarkerReader.maxWebAreaWalkDepth + 1` for a browser or Electron
+    /// element that doesn't support text markers itself. Empty strings come back as `nil`.
     package func read(_ target: AXHitTarget, calls: AXCallCounter) throws(AXReadError) -> ReadCandidates {
         let ax = AXAttributes(target.element, calls: calls)
         let batch = try ax.batch(Self.batchAttributes)
-        let supported = try ax.parameterizedAttributeNames()
+        var supported = try ax.parameterizedAttributeNames()
         let role = batch.string(for: kAXRoleAttribute)
 
         var webArea = Self.isWebArea(supportedParameterized: supported, role: role)
-        if Self.shouldWalkUpForWebArea(isWebArea: webArea, family: target.family) {
-            webArea = try hasWebAreaAncestor(ax)
+        if Self.shouldWalkUpForWebArea(isWebArea: webArea, family: target.family),
+           let ancestor = try AXTextMarkerReader.locateWebArea(from: ax, role: role) {
+            webArea = true
+            // The web steps run on the web area, so its marker attributes decide whether they can run.
+            let markerAttributes = try ancestor.parameterizedAttributeNames()
+                .intersection(AXTextMarkerReader.parameterizedAttributes)
+            supported.formUnion(markerAttributes)
         }
 
         let frame = batch.point(for: kAXPositionAttribute).flatMap { position in
@@ -79,24 +77,13 @@ package struct AXStageZeroReader {
 
     /// Text markers on the element itself, or the element is the web area.
     package static func isWebArea(supportedParameterized: Set<String>, role: String?) -> Bool {
-        role == webAreaRole || supportedParameterized.contains(textMarkerForPosition)
+        role == AXTextMarkerReader.webAreaRole
+            || supportedParameterized.contains(AXTextMarkerReader.Attribute.textMarkerForPosition)
     }
 
     /// Only browser and Electron pids pay for the parent walk (§4.3).
     package static func shouldWalkUpForWebArea(isWebArea: Bool, family: AXAppFamily) -> Bool {
         !isWebArea && family.hostsWebContent
-    }
-
-    private func hasWebAreaAncestor(_ ax: AXAttributes) throws(AXReadError) -> Bool {
-        var current = ax
-        for _ in 0..<Self.maxWebAreaWalkDepth {
-            guard let parent = try current.element(kAXParentAttribute) else { return false }
-            current = current.on(parent)
-            guard let role = try current.string(kAXRoleAttribute) else { return false }
-            if role == Self.webAreaRole { return true }
-            if Self.webAreaWalkStopRoles.contains(role) { return false }
-        }
-        return false
     }
 }
 

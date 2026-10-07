@@ -70,7 +70,8 @@ package struct ReadCandidates: Equatable, Sendable {
     package var ancestorLabel: String?
     /// A secure element was seen in the walks.
     package var hiddenEncountered: Bool
-    /// `AXUIElementCopyParameterizedAttributeNames` of the hit element.
+    /// `AXUIElementCopyParameterizedAttributeNames` of the hit element. When stage 0 found the `AXWebArea` by
+    /// walking up, it also holds that web area's text-marker attributes, since the web steps run there.
     package var supportedParameterized: Set<String>
     /// `supportedParameterized` contains `AXTextMarkerForPosition`, or (browser and Electron pids only) an
     /// `AXWebArea` ancestor was found.

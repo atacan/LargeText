@@ -19,54 +19,66 @@ package protocol ReadStepOutput: Sendable {
 package struct AXReadStepRunner {
     private let policy: ReadPolicy
     private let textRanges: AXTextRangeReader
+    /// One per read, so the `.selection` and `.textMarkers` steps share the web area it finds.
+    private let textMarkers: AXTextMarkerReader
 
+    /// One runner per read.
     package init(policy: ReadPolicy, primaryScreenFrame: CGRect = AXGeometry.primaryScreenFrame()) {
         self.policy = policy
         self.textRanges = AXTextRangeReader(primaryScreenFrame: primaryScreenFrame)
+        self.textMarkers = AXTextMarkerReader(primaryScreenFrame: primaryScreenFrame)
     }
 
-    /// - Parameter ax: the hit element, with the read's call counter.
+    /// - Parameters:
+    ///   - ax: the hit element, with the read's call counter.
+    ///   - granularity: the unit `.textMarkers` fetches.
     package func run(
         _ step: ReadStep,
         on ax: AXAttributes,
         pointer: PointerSample,
+        granularity: ReadGranularity,
         candidates: ReadCandidates
     ) throws(AXReadError) -> ReadCandidates {
         var candidates = candidates
         candidates.attemptedSteps.insert(step)
-        guard Self.canRun(step, supportedParameterized: candidates.supportedParameterized) else {
+        guard Self.canRun(step, supportedParameterized: candidates.supportedParameterized, webArea: candidates.webArea) else {
             Logger.platform.debug("Step \(String(describing: step), privacy: .public) skipped")
             return candidates
         }
         let start = ContinuousClock.now
-        let output = try output(of: step, on: ax, pointer: pointer, candidates: candidates)
+        let output = try output(of: step, on: ax, pointer: pointer, granularity: granularity, candidates: candidates)
         output?.merge(into: &candidates)
         Logger.platform.debug(
             """
             Step \(String(describing: step), privacy: .public) in \(Self.milliseconds(since: start), format: .fixed(precision: 1), privacy: .public) ms: \
             valueLength=\(candidates.value?.utf16.count ?? 0) selectionLength=\(candidates.selection?.text.utf16.count ?? 0) \
-            windowLength=\(candidates.window?.text.utf16.count ?? 0) childTexts=\(candidates.childTexts.count) \
+            windowLength=\(candidates.window?.text.utf16.count ?? 0) \
+            markerUnitLength=\(candidates.markerUnits[granularity]?.text.utf16.count ?? 0) childTexts=\(candidates.childTexts.count) \
             hasAncestorLabel=\(candidates.ancestorLabel != nil) hidden=\(candidates.hiddenEncountered)
             """
         )
         return candidates
     }
 
-    /// The parameterized attributes a step needs on the hit element.
-    package static func requiredParameterized(for step: ReadStep) -> Set<String> {
+    /// The parameterized attributes a step needs. In a web area `.selection` is the web selection
+    /// (`AXSelectedTextMarkerRange` on the `AXWebArea`), so `ReadPlan`'s steps keep one meaning on both paths:
+    /// `.selection` is the selection under the pointer, `.textMarkers` the unit at the pointer.
+    package static func requiredParameterized(for step: ReadStep, webArea: Bool) -> Set<String> {
         switch step {
+        case .selection where webArea: AXTextMarkerReader.selectionRequirements
         case .selection: [kAXBoundsForRangeParameterizedAttribute, kAXStringForRangeParameterizedAttribute]
         case .textWindow: [kAXRangeForPositionParameterizedAttribute, kAXStringForRangeParameterizedAttribute]
-        case .value, .walk, .textMarkers, .done: []
+        case .textMarkers: AXTextMarkerReader.unitRequirements
+        case .value, .walk, .done: []
         }
     }
 
-    /// `.textMarkers` is phase 4 (`AXTextMarkerReader`) and is always skipped for now; `.done` does nothing.
-    package static func canRun(_ step: ReadStep, supportedParameterized: Set<String>) -> Bool {
+    /// `.done` does nothing; every other step runs when its attributes are supported.
+    package static func canRun(_ step: ReadStep, supportedParameterized: Set<String>, webArea: Bool) -> Bool {
         switch step {
-        case .textMarkers, .done: false
-        case .value, .selection, .textWindow, .walk:
-            requiredParameterized(for: step).isSubset(of: supportedParameterized)
+        case .done: false
+        case .value, .selection, .textWindow, .textMarkers, .walk:
+            requiredParameterized(for: step, webArea: webArea).isSubset(of: supportedParameterized)
         }
     }
 
@@ -74,12 +86,20 @@ package struct AXReadStepRunner {
         of step: ReadStep,
         on ax: AXAttributes,
         pointer: PointerSample,
+        granularity: ReadGranularity,
         candidates: ReadCandidates
     ) throws(AXReadError) -> (any ReadStepOutput)? {
         switch step {
         case .value:
             try AXValueReader(limit: policy.elementTextLimit)
                 .read(ax, characterCount: candidates.characterCount, role: candidates.role)
+        case .selection where candidates.webArea:
+            try textMarkers.readSelection(
+                ax,
+                role: candidates.role,
+                pointer: pointer,
+                supported: candidates.supportedParameterized
+            )
         case .selection:
             // One unit over the cap lets the chooser tell that it must add an ellipsis.
             try textRanges.readSelection(ax, pointer: pointer, maxLength: policy.maxCharacters + 1)
@@ -87,7 +107,15 @@ package struct AXReadStepRunner {
             try textRanges.readWindow(ax, pointer: pointer, characterCount: candidates.characterCount)
         case .walk:
             try AXElementWalker(valueLimit: policy.elementTextLimit).walk(ax)
-        case .textMarkers, .done:
+        case .textMarkers:
+            try textMarkers.readUnit(
+                ax,
+                role: candidates.role,
+                granularity: granularity,
+                pointer: pointer,
+                supported: candidates.supportedParameterized
+            )
+        case .done:
             nil
         }
     }

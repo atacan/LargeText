@@ -11,32 +11,63 @@ import Testing
         kAXStringForRangeParameterizedAttribute,
         kAXBoundsForRangeParameterizedAttribute,
     ]
+    let webContent: Set<String> = [
+        "AXTextMarkerForPosition",
+        "AXSentenceTextMarkerRangeForTextMarker",
+        "AXStringForTextMarkerRange",
+        "AXBoundsForTextMarkerRange",
+    ]
 
     // MARK: - Step skipping
 
     @Test func textStepsRunWhenTheirAttributesAreSupported() {
-        #expect(AXReadStepRunner.canRun(.selection, supportedParameterized: nativeTextView))
-        #expect(AXReadStepRunner.canRun(.textWindow, supportedParameterized: nativeTextView))
+        #expect(AXReadStepRunner.canRun(.selection, supportedParameterized: nativeTextView, webArea: false))
+        #expect(AXReadStepRunner.canRun(.textWindow, supportedParameterized: nativeTextView, webArea: false))
     }
 
     @Test func textStepsAreSkippedWithoutTheirAttributes() {
-        #expect(!AXReadStepRunner.canRun(.selection, supportedParameterized: []))
-        #expect(!AXReadStepRunner.canRun(.textWindow, supportedParameterized: []))
+        #expect(!AXReadStepRunner.canRun(.selection, supportedParameterized: [], webArea: false))
+        #expect(!AXReadStepRunner.canRun(.textWindow, supportedParameterized: [], webArea: false))
         // A window needs both the position lookup and the string fetch.
-        #expect(!AXReadStepRunner.canRun(.textWindow, supportedParameterized: [kAXStringForRangeParameterizedAttribute]))
+        #expect(!AXReadStepRunner.canRun(.textWindow, supportedParameterized: [kAXStringForRangeParameterizedAttribute], webArea: false))
         // The selection is kept only if the pointer is inside its bounds.
-        #expect(!AXReadStepRunner.canRun(.selection, supportedParameterized: [kAXStringForRangeParameterizedAttribute]))
+        #expect(!AXReadStepRunner.canRun(.selection, supportedParameterized: [kAXStringForRangeParameterizedAttribute], webArea: false))
     }
 
     @Test func valueAndWalkNeedNoParameterizedAttributes() {
-        #expect(AXReadStepRunner.canRun(.value, supportedParameterized: []))
-        #expect(AXReadStepRunner.canRun(.walk, supportedParameterized: []))
+        #expect(AXReadStepRunner.canRun(.value, supportedParameterized: [], webArea: false))
+        #expect(AXReadStepRunner.canRun(.walk, supportedParameterized: [], webArea: false))
     }
 
-    @Test func textMarkersAndDoneNeverRun() {
-        let everything = nativeTextView.union(["AXTextMarkerForPosition", "AXStringForTextMarkerRange"])
-        #expect(!AXReadStepRunner.canRun(.textMarkers, supportedParameterized: everything))
-        #expect(!AXReadStepRunner.canRun(.done, supportedParameterized: everything))
+    @Test func doneNeverRuns() {
+        let everything = nativeTextView.union(AXTextMarkerReader.parameterizedAttributes)
+        #expect(!AXReadStepRunner.canRun(.done, supportedParameterized: everything, webArea: false))
+        #expect(!AXReadStepRunner.canRun(.done, supportedParameterized: everything, webArea: true))
+    }
+
+    // MARK: - Web steps
+
+    @Test func textMarkersNeedTheMarkerAtThePointerAndTheRangeString() {
+        #expect(AXReadStepRunner.requiredParameterized(for: .textMarkers, webArea: true)
+            == ["AXTextMarkerForPosition", "AXStringForTextMarkerRange"])
+        #expect(AXReadStepRunner.canRun(.textMarkers, supportedParameterized: webContent, webArea: true))
+        #expect(!AXReadStepRunner.canRun(.textMarkers, supportedParameterized: ["AXStringForTextMarkerRange"], webArea: true))
+        #expect(!AXReadStepRunner.canRun(.textMarkers, supportedParameterized: nativeTextView, webArea: true))
+    }
+
+    @Test func webSelectionNeedsMarkerBoundsAndStringNotTheNativeOnes() {
+        #expect(AXReadStepRunner.requiredParameterized(for: .selection, webArea: true)
+            == ["AXBoundsForTextMarkerRange", "AXStringForTextMarkerRange"])
+        #expect(AXReadStepRunner.canRun(.selection, supportedParameterized: webContent, webArea: true))
+        #expect(!AXReadStepRunner.canRun(.selection, supportedParameterized: nativeTextView, webArea: true))
+        // Without bounds the pointer-inside rule can't be checked, so the step is skipped.
+        #expect(!AXReadStepRunner.canRun(.selection, supportedParameterized: ["AXStringForTextMarkerRange"], webArea: true))
+    }
+
+    @Test func nativeSelectionIsUnchangedOutsideWebAreas() {
+        #expect(AXReadStepRunner.requiredParameterized(for: .selection, webArea: false)
+            == [kAXBoundsForRangeParameterizedAttribute, kAXStringForRangeParameterizedAttribute])
+        #expect(!AXReadStepRunner.canRun(.selection, supportedParameterized: webContent, webArea: false))
     }
 
     // MARK: - Value step guard
@@ -88,6 +119,18 @@ import Testing
         #expect(candidates == ReadCandidates(
             pid: 1, role: "AXTextArea", value: "v", characterCount: 10, selection: span, window: window
         ))
+    }
+
+    @Test func markerUnitMergesOnlyItsGranularity() {
+        let paragraph = TextSpan(text: "A paragraph. Two sentences.")
+        let sentence = TextSpan(text: "Two sentences.", frame: CGRect(x: 1, y: 2, width: 3, height: 4))
+        var candidates = ReadCandidates(pid: 1, markerUnits: [.paragraph: paragraph], webArea: true)
+
+        AXTextMarkerReader.UnitOutput(granularity: .sentence, unit: sentence).merge(into: &candidates)
+        #expect(candidates.markerUnits == [.paragraph: paragraph, .sentence: sentence])
+
+        AXTextMarkerReader.UnitOutput(granularity: .line).merge(into: &candidates)
+        #expect(candidates.markerUnits == [.paragraph: paragraph, .sentence: sentence])
     }
 
     @Test func walkOutputAppendsAndNeverClearsHidden() {
