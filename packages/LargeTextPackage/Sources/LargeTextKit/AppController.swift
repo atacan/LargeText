@@ -63,7 +63,7 @@ package final class AppController: NSObject, NSApplicationDelegate {
 
         // 4. Global hotkey.
         do {
-            hotkeyRegistration = try environment.hotkeys.register(hotkey) {
+            hotkeyRegistration = try environment.hotkeys.registerPressOnly(hotkey) {
                 Task { await coordinator.toggle() }
             }
         } catch {
@@ -74,8 +74,11 @@ package final class AppController: NSObject, NSApplicationDelegate {
             }
         }
 
-        // 5. Ask for Accessibility once, outside any session. (The AX messaging timeout is configured
-        //    lazily by AccessibilityFocusCapturer on first use.) With --present-on-launch the overlay
+        // 5. Process-wide AX messaging timeout. Idempotent; while untrusted it fails and is retried by
+        //    each later AX user (focus capture, reader reads).
+        AXConfiguration.applyMessagingTimeoutIfNeeded()
+
+        // 6. Ask for Accessibility once, outside any session. With --present-on-launch the overlay
         //    would cover the system prompt (§2.2), so the request is left to the status menu.
         let permissions = environment.permissions.current
         if permissions.accessibility == .denied || permissions.eventPosting == .denied {
@@ -89,7 +92,7 @@ package final class AppController: NSObject, NSApplicationDelegate {
             system.logDiagnostics()
         }
 
-        // 6. Present on launch.
+        // 7. Present on launch.
         if launch.presentOnLaunch {
             Task { await coordinator.toggle() }
         }

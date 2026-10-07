@@ -7,9 +7,6 @@ import os
 /// only the frontmost application is known (`elementKind == nil`, which still pastes).
 @MainActor
 package final class AccessibilityFocusCapturer: FocusCapturing {
-    /// AX messaging timeout, so a hung target cannot block the main thread for long.
-    static let messagingTimeout: Float = 0.1
-
     static let batchAttributes: [String] = [
         kAXRoleAttribute,
         kAXSubroleAttribute,
@@ -18,7 +15,6 @@ package final class AccessibilityFocusCapturer: FocusCapturing {
         kAXSizeAttribute,
     ]
 
-    private var didConfigureMessagingTimeout = false
     /// Electron apps whose accessibility tree we already switched on.
     private var manualAccessibilityPIDs: Set<pid_t> = []
 
@@ -44,7 +40,7 @@ package final class AccessibilityFocusCapturer: FocusCapturing {
     package var keyboardFocusProcessIdentifier: Int32? {
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         guard AXIsProcessTrusted() else { return frontmostPID }
-        configureMessagingTimeoutIfNeeded()
+        AXConfiguration.applyMessagingTimeoutIfNeeded()
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(
             AXUIElementCreateSystemWide(),
@@ -81,8 +77,8 @@ package final class AccessibilityFocusCapturer: FocusCapturing {
             return FocusTarget(application: application)
         }
 
-        // Step 2: global AX timeout (once).
-        configureMessagingTimeoutIfNeeded()
+        // Step 2: global AX timeout, so a hung target cannot block the main thread for long.
+        AXConfiguration.applyMessagingTimeoutIfNeeded()
 
         // Step 3: focused element (and focused window as frame fallback).
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
@@ -134,15 +130,6 @@ package final class AccessibilityFocusCapturer: FocusCapturing {
         Logger.platform.info(
             "AXManualAccessibility on \(app.bundleIdentifier ?? "?", privacy: .public): \(error == .success ? "enabled" : "failed (\(error.rawValue))", privacy: .public)"
         )
-    }
-
-    private func configureMessagingTimeoutIfNeeded() {
-        guard !didConfigureMessagingTimeout else { return }
-        didConfigureMessagingTimeout = true
-        let error = AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), Self.messagingTimeout)
-        if error != .success {
-            Logger.platform.error("AXUIElementSetMessagingTimeout failed (\(error.rawValue))")
-        }
     }
 
     private func focusedWindowFrame(of appElement: AXUIElement) -> CGRect? {

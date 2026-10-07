@@ -23,6 +23,12 @@ package struct NoticeContent: Equatable, Sendable {
                 title: "Shortcut \(KeyComboFormatter.string(for: combo)) unavailable",
                 subtitle: "Another app may be using it"
             )
+        case .nothingToRead:
+            self.init(title: "No readable text under the pointer")
+        case .readerNeedsAccessibility:
+            self.init(title: "Allow Accessibility to read text", subtitle: "Choose Grant Access… in the LargeText menu")
+        case .readerMenuHint(let combo):
+            self.init(title: "Point at text and press \(KeyComboFormatter.string(for: combo))")
         }
     }
 

@@ -4,15 +4,16 @@ import os
 
 /// Global hotkeys via Carbon `RegisterEventHotKey` (needs no TCC permission, §2.1).
 ///
-/// One application-level `kEventHotKeyPressed` handler is installed lazily on the first `register`
-/// and removed again when the last registration is unregistered. While installed, the Carbon handler
-/// holds a retained reference to the registrar, so the registrar cannot be deallocated under Carbon.
+/// One application-level handler for `kEventHotKeyPressed` and `kEventHotKeyReleased` is installed lazily
+/// on the first `register` and removed again when the last registration is unregistered. While installed,
+/// the Carbon handler holds a retained reference to the registrar, so the registrar cannot be deallocated
+/// under Carbon.
 @MainActor
 package final class CarbonHotkeyRegistrar: HotkeyRegistering {
     /// Four-char signature 'LTxt' identifying our hotkeys.
     static let signature: OSType = 0x4C54_7874
 
-    private var handlers: [UInt32: @MainActor () -> Void] = [:]
+    private var handlers: [UInt32: @MainActor (HotkeyEvent) -> Void] = [:]
     private var nextIdentifier: UInt32 = 1
     private var eventHandler: EventHandlerRef?
 
@@ -20,12 +21,11 @@ package final class CarbonHotkeyRegistrar: HotkeyRegistering {
 
     package func register(
         _ combo: KeyCombo,
-        handler: @escaping @MainActor () -> Void
+        handler: @escaping @MainActor (HotkeyEvent) -> Void
     ) throws(HotkeyError) -> any HotkeyRegistration {
         try installEventHandlerIfNeeded(for: combo)
 
-        let identifier = nextIdentifier
-        nextIdentifier &+= 1
+        let identifier = makeIdentifier()
         var hotKeyRef: EventHotKeyRef?
         let status = RegisterEventHotKey(
             combo.keyCode,
@@ -53,28 +53,49 @@ package final class CarbonHotkeyRegistrar: HotkeyRegistering {
         removeEventHandlerIfIdle()
     }
 
-    /// Called from the Carbon callback (main thread).
-    func handleHotKeyPressed(_ hotKeyID: EventHotKeyID) -> OSStatus {
+    /// Called from the Carbon callback (main thread). `kind` is `GetEventKind(event)`; `time` is
+    /// `GetEventTime(event)`, read inside the callback.
+    func handle(hotKeyID: EventHotKeyID, kind: UInt32, time: EventTime) -> OSStatus {
+        let phase: HotkeyPhase
+        switch kind {
+        case UInt32(kEventHotKeyPressed): phase = .pressed
+        case UInt32(kEventHotKeyReleased): phase = .released
+        default: return OSStatus(eventNotHandledErr)
+        }
         guard hotKeyID.signature == Self.signature, let handler = handlers[hotKeyID.id] else {
             return OSStatus(eventNotHandledErr)
         }
-        handler()
+        handler(HotkeyEvent(phase: phase, at: time))
         return noErr
+    }
+
+    /// Test seam: adds a handler without `RegisterEventHotKey` or a Carbon event handler, and returns the
+    /// identifier to pass to `handle(hotKeyID:kind:time:)`.
+    func insertHandlerForTesting(_ handler: @escaping @MainActor (HotkeyEvent) -> Void) -> UInt32 {
+        let identifier = makeIdentifier()
+        handlers[identifier] = handler
+        return identifier
+    }
+
+    private func makeIdentifier() -> UInt32 {
+        let identifier = nextIdentifier
+        nextIdentifier &+= 1
+        return identifier
     }
 
     private func installEventHandlerIfNeeded(for combo: KeyCombo) throws(HotkeyError) {
         guard eventHandler == nil else { return }
-        var eventType = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: UInt32(kEventHotKeyPressed)
-        )
+        var eventTypes = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased)),
+        ]
         let retainedSelf = Unmanaged.passRetained(self)
         var handlerRef: EventHandlerRef?
         let status = InstallEventHandler(
             GetApplicationEventTarget(),
-            carbonHotKeyPressedCallback,
-            1,
-            &eventType,
+            carbonHotKeyEventCallback,
+            eventTypes.count,
+            &eventTypes,
             retainedSelf.toOpaque(),
             &handlerRef
         )
@@ -95,13 +116,16 @@ package final class CarbonHotkeyRegistrar: HotkeyRegistering {
     }
 }
 
-/// Carbon dispatches application-target events on the main thread.
-private func carbonHotKeyPressedCallback(
+/// Carbon dispatches application-target events on the main thread. The time is read here, from the event
+/// itself, so a busy main thread cannot skew tap-vs-hold timing (§3.1).
+private func carbonHotKeyEventCallback(
     _ callRef: EventHandlerCallRef?,
     _ event: EventRef?,
     _ userData: UnsafeMutableRawPointer?
 ) -> OSStatus {
     guard let event, let userData else { return OSStatus(eventNotHandledErr) }
+    let kind = GetEventKind(event)
+    let time = GetEventTime(event)
     var hotKeyID = EventHotKeyID()
     let status = GetEventParameter(
         event,
@@ -115,6 +139,6 @@ private func carbonHotKeyPressedCallback(
     guard status == noErr else { return status }
     let registrar = Unmanaged<CarbonHotkeyRegistrar>.fromOpaque(userData).takeUnretainedValue()
     return MainActor.assumeIsolated {
-        registrar.handleHotKeyPressed(hotKeyID)
+        registrar.handle(hotKeyID: hotKeyID, kind: kind, time: time)
     }
 }

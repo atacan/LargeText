@@ -71,4 +71,9 @@ package enum Notice: Equatable, Sendable {
     case clipboardReplaced
     case secureFieldUnsupported
     case hotkeyUnavailable(KeyCombo)
+    /// A reader tap found no text under the pointer.
+    case nothingToRead
+    case readerNeedsAccessibility
+    /// The status-menu item: the pointer is on the menu, so it explains the shortcut instead of reading.
+    case readerMenuHint(KeyCombo)
 }

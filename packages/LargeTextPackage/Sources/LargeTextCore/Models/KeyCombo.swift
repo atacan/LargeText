@@ -12,6 +12,9 @@ package struct KeyCombo: Hashable, Codable, Sendable {
 
     /// ⌃⌥⌘T (`kVK_ANSI_T` = 0x11).
     package static let `default` = KeyCombo(keyCode: 0x11, modifiers: [.control, .option, .command])
+
+    /// ⌃⌥⌘R (`kVK_ANSI_R` = 0x0F): the reader's tap-or-hold shortcut.
+    package static let readerDefault = KeyCombo(keyCode: 0x0F, modifiers: [.control, .option, .command])
 }
 
 package enum HotkeyError: Error, Equatable, Sendable {

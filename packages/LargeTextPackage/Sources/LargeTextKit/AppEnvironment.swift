@@ -19,7 +19,13 @@ package struct AppEnvironment {
     package var notices: any NoticePresenting
     /// `nil` → a `PasteboardTextInserter` built from the services above.
     package var inserterOverride: (any TextInserting)?
+    package var textReader: any TextReading
+    package var pointer: any PointerTracking
+    package var keyState: any KeyStateReading
+    package var readerPresenter: any ReaderPresenting
 
+    /// The reader services default to Core fakes, so call sites that predate the reader keep compiling.
+    @MainActor
     package init(
         hotkeys: any HotkeyRegistering,
         focus: any FocusCapturing,
@@ -30,7 +36,11 @@ package struct AppEnvironment {
         sleeper: any Sleeper,
         overlay: any OverlayPresenting,
         notices: any NoticePresenting,
-        inserterOverride: (any TextInserting)? = nil
+        inserterOverride: (any TextInserting)? = nil,
+        textReader: any TextReading = StubTextReader(),
+        pointer: any PointerTracking = ScriptedPointer(),
+        keyState: any KeyStateReading = FixedKeyState(),
+        readerPresenter: any ReaderPresenting = LoggingReaderPresenter()
     ) {
         self.hotkeys = hotkeys
         self.focus = focus
@@ -42,6 +52,10 @@ package struct AppEnvironment {
         self.overlay = overlay
         self.notices = notices
         self.inserterOverride = inserterOverride
+        self.textReader = textReader
+        self.pointer = pointer
+        self.keyState = keyState
+        self.readerPresenter = readerPresenter
     }
 
     /// The production environment. Side-effect free.
@@ -56,7 +70,12 @@ package struct AppEnvironment {
             preferences: UserDefaultsPreferencesStore(defaults: .standard),
             sleeper: TaskSleeper(),
             overlay: OverlayWindowController(),
-            notices: HUDNoticePresenter()
+            notices: HUDNoticePresenter(),
+            // Fakes until the integration phase swaps in the live reader, pointer, key-state and panel types.
+            textReader: StubTextReader(),
+            pointer: ScriptedPointer(),
+            keyState: FixedKeyState(),
+            readerPresenter: LoggingReaderPresenter()
         )
     }
 

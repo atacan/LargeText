@@ -19,4 +19,9 @@ package enum RecordedEvent: Equatable, Sendable {
     case insert(String, CommitMode)
     // Sleeper
     case sleep(Duration)
+    // Reader presenter (pointer moves are not logged)
+    case readerPresent(ReaderContent, ReaderChrome.Mode)
+    case readerUpdate(ReaderContent)
+    case readerPin(ReaderContent)
+    case readerDismiss
 }

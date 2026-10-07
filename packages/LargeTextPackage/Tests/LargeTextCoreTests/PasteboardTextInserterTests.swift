@@ -153,11 +153,11 @@ struct PasteboardTextInserterTests {
     }
 
     @Test func backToBackPastesRestoreTheOriginalClipboard() async {
-        sleeper.heldDuration = Self.timing.restoreDelay
+        sleeper.heldDurations = [Self.timing.restoreDelay]
 
         _ = await inserter.insert("first", into: Fixtures.target(), mode: .insert)
         _ = await inserter.insert("second", into: Fixtures.target(), mode: .insert)
-        sleeper.releaseHeld()
+        sleeper.release(Self.timing.restoreDelay)
         await inserter.pendingRestore?.value
 
         #expect(pasteboard.snapshotCount == 1)
@@ -166,13 +166,13 @@ struct PasteboardTextInserterTests {
     }
 
     @Test func flushRestoresImmediately() async {
-        sleeper.heldDuration = Self.timing.restoreDelay
+        sleeper.heldDurations = [Self.timing.restoreDelay]
 
         _ = await inserter.insert("hello", into: Fixtures.target(), mode: .insert)
         inserter.flushPendingRestore()
         #expect(pasteboard.string == "original")
 
-        sleeper.releaseHeld()
+        sleeper.release(Self.timing.restoreDelay)
         await inserter.pendingRestore?.value
         #expect(pasteboard.restoredSnapshots.count == 1)
     }

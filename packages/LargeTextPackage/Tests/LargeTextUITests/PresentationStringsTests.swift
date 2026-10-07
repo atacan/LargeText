@@ -37,6 +37,13 @@ struct PresentationStringsTests {
         #expect(NoticeContent(.hotkeyUnavailable(.default)).title == "Shortcut ⌃⌥⌘T unavailable")
     }
 
+    @Test func readerNotices() {
+        #expect(NoticeContent(.nothingToRead) == NoticeContent(title: "No readable text under the pointer"))
+        #expect(NoticeContent(.readerNeedsAccessibility).title == "Allow Accessibility to read text")
+        #expect(NoticeContent(.readerNeedsAccessibility).subtitle?.isEmpty == false)
+        #expect(NoticeContent(.readerMenuHint(.readerDefault)).title == "Point at text and press ⌃⌥⌘R")
+    }
+
     // MARK: Status menu
 
     @Test func menuWithAllPermissions() {
