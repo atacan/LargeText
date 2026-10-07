@@ -69,7 +69,7 @@ package final class AppController: NSObject, NSApplicationDelegate {
         } catch {
             Logger.kit.error("Hotkey unavailable: \(String(describing: error), privacy: .public)")
             if case .unavailable(let combo) = error {
-                statusItem.hotkeyUnavailable = combo
+                statusItem.hotkeyUnavailable.append(combo)
                 environment.notices.show(.hotkeyUnavailable(combo))
             }
         }

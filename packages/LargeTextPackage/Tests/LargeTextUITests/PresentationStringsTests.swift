@@ -44,32 +44,16 @@ struct PresentationStringsTests {
         #expect(NoticeContent(.readerMenuHint(.readerDefault)).title == "Point at text and press ⌃⌥⌘R")
     }
 
-    // MARK: Status menu
+    // MARK: Reader card
 
-    @Test func menuWithAllPermissions() {
-        let items = StatusMenuModel.items(hotkey: .default, permissions: .allGranted, hotkeyUnavailable: nil)
-        #expect(items == [
-            .action(title: "Open Large Editor (⌃⌥⌘T)", action: .openEditor),
-            .info(title: "Accessibility: Granted ✓"),
-            .separator,
-            .action(title: "Quit LargeText", action: .quit),
-        ])
+    @Test func readerTitleNamesTheApp() {
+        #expect(ReaderStrings.title(appName: "Safari") == "Reading from Safari")
+        #expect(ReaderStrings.title(appName: nil) == ReaderStrings.neutralTitle)
+        #expect(ReaderStrings.title(appName: "") == ReaderStrings.neutralTitle)
     }
 
-    @Test func menuShowsHotkeyError() {
-        let items = StatusMenuModel.items(hotkey: .default, permissions: .allGranted, hotkeyUnavailable: .default)
-        #expect(items.contains(.info(title: "Shortcut ⌃⌥⌘T unavailable")))
-    }
-
-    @Test func permissionItemStates() {
-        #expect(StatusMenuModel.permissionItem(.allDenied) == .action(title: "Grant Access…", action: .grantAccess))
-        #expect(
-            StatusMenuModel.permissionItem(Permissions(accessibility: .denied, eventPosting: .granted))
-                == .action(title: "Grant Access…", action: .grantAccess)
-        )
-        #expect(
-            StatusMenuModel.permissionItem(Permissions(accessibility: .granted, eventPosting: .denied))
-                == .action(title: "Relaunch to finish setup", action: .relaunch)
-        )
+    @Test func readerFooterFollowsTheMode() {
+        #expect(ReaderStrings.footer(.pinned) == "⎋ Close · ⌘C Copy · ⌘± Size")
+        #expect(ReaderStrings.footer(.following) == "Release to close · Tap to pin")
     }
 }
