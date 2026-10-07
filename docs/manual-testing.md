@@ -89,8 +89,11 @@ The timing defaults are the plan's starting values: `focusReturnDelay` 50 ms, `p
 - [ ] **0i Permission granted mid-run.** Start without access (`tccutil reset …`), grant it while running.
   Does posting work without relaunch? The status menu shows "Relaunch to finish setup" when AX is granted
   but posting isn't.
-- [ ] **0j Electron.** Whether setting `AXManualAccessibility = true` on an Electron app element is needed
-  for focus/selection reads (not implemented in v1; note what `Platform` logs report for role/selection).
+- [ ] **0j Electron.** LargeText sets `AXManualAccessibility = true` once per Electron process (detected by
+  `Contents/Frameworks/Electron Framework.framework`; log line `AXManualAccessibility on …`). In VS Code /
+  Signal / Slack: open the overlay twice with some text selected. The first capture may be empty (the
+  tree builds asynchronously); the second should log `kind=…` and `hasSelection=true` and prefill the
+  selection. Also check the Electron app doesn't feel slower afterwards.
 
 (There is no item 0d in the plan.)
 

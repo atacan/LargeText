@@ -19,6 +19,8 @@ package final class AccessibilityFocusCapturer: FocusCapturing {
     ]
 
     private var didConfigureMessagingTimeout = false
+    /// Electron apps whose accessibility tree we already switched on.
+    private var manualAccessibilityPIDs: Set<pid_t> = []
 
     package init() {}
 
@@ -84,8 +86,7 @@ package final class AccessibilityFocusCapturer: FocusCapturing {
 
         // Step 3: focused element (and focused window as frame fallback).
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        // TODO(spike 0j): set `AXManualAccessibility = true` on Electron app elements so that focus and
-        // selection become readable. Never set `AXEnhancedUserInterface` (breaks Chrome window animations).
+        enableManualAccessibilityIfElectron(app, element: appElement)
         guard let element = Self.copyElement(appElement, attribute: kAXFocusedUIElementAttribute) else {
             return FocusTarget(application: application, frame: focusedWindowFrame(of: appElement))
         }
@@ -118,6 +119,20 @@ package final class AccessibilityFocusCapturer: FocusCapturing {
             ),
             selectedText: selectedText,
             frame: frame
+        )
+    }
+
+    /// Spike 0j: Electron only exposes focus and selection after a client sets `AXManualAccessibility`.
+    /// Done once per process; Electron builds the tree asynchronously, so the very first capture may still
+    /// be empty (unknown → still pastes). Never set `AXEnhancedUserInterface` (breaks Chrome window animations).
+    private func enableManualAccessibilityIfElectron(_ app: NSRunningApplication, element: AXUIElement) {
+        let pid = app.processIdentifier
+        guard !manualAccessibilityPIDs.contains(pid),
+              ElectronAppDetector.isElectron(bundleURL: app.bundleURL) else { return }
+        manualAccessibilityPIDs.insert(pid)
+        let error = AXUIElementSetAttributeValue(element, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        Logger.platform.info(
+            "AXManualAccessibility on \(app.bundleIdentifier ?? "?", privacy: .public): \(error == .success ? "enabled" : "failed (\(error.rawValue))", privacy: .public)"
         )
     }
 
