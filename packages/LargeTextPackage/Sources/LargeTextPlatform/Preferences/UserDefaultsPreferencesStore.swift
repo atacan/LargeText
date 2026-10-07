@@ -25,8 +25,7 @@ package final class UserDefaultsPreferencesStore: PreferencesStore {
         static let modifiers = "modifiers"
     }
 
-    // TODO(kit-merge): use FontSizePolicy.default
-    static let defaultFontSize = FontSize(points: 64)
+    static let defaultFontSize = FontSizePolicy.default
 
     private let defaults: UserDefaults
 
