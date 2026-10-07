@@ -24,6 +24,19 @@ struct OverlayWindowControllerSmokeTests {
         #expect(received.isEmpty)
     }
 
+    @Test func typedWhitespaceAndLineBreaksSurviveDismiss() async throws {
+        _ = NSApplication.shared
+        let overlay = OverlayWindowController(reduceMotion: { true })
+
+        overlay.present(sessionID: UUID(), initialText: "", chrome: chrome) { _ in }
+        let textView = try #require(overlay.editor?.textView)
+        textView.insertText("  hello", replacementRange: textView.selectedRange())
+        textView.insertNewlineIgnoringFieldEditor(nil)
+        textView.insertText("\tworld ", replacementRange: textView.selectedRange())
+
+        #expect(await overlay.dismiss() == "  hello\n\tworld ")
+    }
+
     @Test func panelIsReusedAndTextIsReplacedPerSession() async {
         _ = NSApplication.shared
         let overlay = OverlayWindowController(reduceMotion: { true })

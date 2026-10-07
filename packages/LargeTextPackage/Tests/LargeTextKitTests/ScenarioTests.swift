@@ -123,7 +123,7 @@ import Testing
         #expect(overlay.lastInitialText == "https://www.apple.com")
         #expect(overlay.lastChrome?.targetName == "Safari")
         #expect(overlay.lastChrome?.targetBundleIdentifier == "com.apple.Safari")
-        #expect(overlay.lastChrome?.hints == TargetHints(willCopyToClipboard: false, flattensNewlines: true))
+        #expect(overlay.lastChrome?.hints == TargetHints(willCopyToClipboard: false))
         // The override is respected: nothing reaches the pasteboard or the keyboard.
         #expect(pasteboard.writes.isEmpty)
         #expect(pasteboard.snapshotCount == 0)

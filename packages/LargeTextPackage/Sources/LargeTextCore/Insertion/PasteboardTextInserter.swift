@@ -70,8 +70,8 @@ package final class PasteboardTextInserter: TextInserting {
             try? await sleeper.sleep(for: timing.pollInterval)
         }
 
-        // 4. Text policy.
-        let prepared = InsertionTextPolicy.prepare(text, for: target)
+        // 4. The text is pasted exactly as typed (whitespace and line breaks included);
+        //    the target decides how to handle it.
 
         // 5. Snapshot.
         let snapshot: PasteboardSnapshot?
@@ -92,7 +92,7 @@ package final class PasteboardTextInserter: TextInserting {
         }
 
         // 6. Write (transient, current host only).
-        let writtenChangeCount = pasteboard.write(prepared, transient: true)
+        let writtenChangeCount = pasteboard.write(text, transient: true)
 
         // 7–8. Paste, then optionally submit.
         keystrokes.send(.paste)

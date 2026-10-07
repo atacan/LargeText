@@ -12,7 +12,7 @@ package final class OverlayWindowController: OverlayPresenting {
     private let reduceMotion: @MainActor () -> Bool
 
     private var panel: OverlayPanel?
-    private var editor: EditorViewController?
+    private(set) var editor: EditorViewController?
 
     private var sessionID: UUID?
     private var intents: (@MainActor (OverlayIntent) -> Void)?

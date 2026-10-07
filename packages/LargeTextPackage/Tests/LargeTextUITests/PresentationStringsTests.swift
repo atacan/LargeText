@@ -15,14 +15,9 @@ struct PresentationStringsTests {
         #expect(EditorStrings.title(targetName: "") == EditorStrings.neutralTitle)
     }
 
-    @Test func hintsShowBothConditions() {
+    @Test func hints() {
         #expect(EditorStrings.hints(TargetHints()) == [])
         #expect(EditorStrings.hints(TargetHints(willCopyToClipboard: true)) == ["Will copy to clipboard"])
-        #expect(EditorStrings.hints(TargetHints(flattensNewlines: true)) == ["Line breaks become spaces"])
-        #expect(
-            EditorStrings.hints(TargetHints(willCopyToClipboard: true, flattensNewlines: true))
-                == ["Will copy to clipboard", "Line breaks become spaces"]
-        )
     }
 
     // MARK: HUD

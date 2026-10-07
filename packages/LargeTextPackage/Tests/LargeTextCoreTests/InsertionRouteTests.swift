@@ -2,14 +2,13 @@ import Testing
 import LargeTextCore
 import LargeTextTestSupport
 
-/// One row of the §2.5 route table, plus what the overlay should show and what ends up on the pasteboard.
+/// One row of the §2.5 route table, plus what the overlay should show. Text always reaches the pasteboard verbatim.
 struct RouteRow: Sendable, CustomTestStringConvertible {
     let name: String
     let application: TargetApplication?
     let kind: ElementKind?
     let permissions: Permissions
     let route: InsertionRoute
-    let flattens: Bool
 
     var testDescription: String { name }
 
@@ -17,21 +16,21 @@ struct RouteRow: Sendable, CustomTestStringConvertible {
 
     static let all: [RouteRow] = [
         RouteRow(name: "event posting denied", application: Fixtures.safari, kind: .singleLineText,
-                 permissions: denied, route: .copyOnly(.permissionMissing), flattens: false),
+                 permissions: denied, route: .copyOnly(.permissionMissing)),
         RouteRow(name: "LargeText was frontmost", application: nil, kind: nil,
-                 permissions: .allGranted, route: .copyOnly(.noEditableTarget), flattens: false),
+                 permissions: .allGranted, route: .copyOnly(.noEditableTarget)),
         RouteRow(name: "not editable", application: Fixtures.safari, kind: .notEditable,
-                 permissions: .allGranted, route: .copyOnly(.noEditableTarget), flattens: false),
+                 permissions: .allGranted, route: .copyOnly(.noEditableTarget)),
         RouteRow(name: "unknown element", application: Fixtures.safari, kind: nil,
-                 permissions: .allGranted, route: .paste, flattens: false),
+                 permissions: .allGranted, route: .paste),
         RouteRow(name: "single-line field", application: Fixtures.safari, kind: .singleLineText,
-                 permissions: .allGranted, route: .paste, flattens: true),
+                 permissions: .allGranted, route: .paste),
         RouteRow(name: "multi-line field", application: Fixtures.safari, kind: .multiLineText,
-                 permissions: .allGranted, route: .paste, flattens: false),
+                 permissions: .allGranted, route: .paste),
         RouteRow(name: "terminal, unknown element", application: Fixtures.terminal, kind: nil,
-                 permissions: .allGranted, route: .paste, flattens: true),
+                 permissions: .allGranted, route: .paste),
         RouteRow(name: "accessibility denied only", application: Fixtures.safari, kind: nil,
-                 permissions: Permissions(accessibility: .denied, eventPosting: .granted), route: .paste, flattens: false),
+                 permissions: Permissions(accessibility: .denied, eventPosting: .granted), route: .paste),
     ]
 
     var target: FocusTarget { Fixtures.target(application, kind: kind) }
@@ -68,20 +67,20 @@ struct InsertionRouteTests {
 
         let id = try #require(await harness.open())
         let hints = try #require(harness.overlay.lastChrome?.hints)
-        #expect(hints == TargetHints(willCopyToClipboard: row.route != .paste, flattensNewlines: row.flattens))
+        #expect(hints == TargetHints(willCopyToClipboard: row.route != .paste))
 
-        harness.overlay.textToReturn = "a\nb"
+        harness.overlay.textToReturn = "  a\nb "
         await harness.send(.commit(.insert), to: id)
         await inserter.pendingRestore?.value
 
         switch row.route {
         case .paste:
             #expect(harness.notices.shown.isEmpty)
-            #expect(pasteboard.writes.map(\.string) == [row.flattens ? "a b" : "a\nb"])
+            #expect(pasteboard.writes.map(\.string) == ["  a\nb "])
             #expect(pasteboard.writes.map(\.transient) == [true])
         case .copyOnly(let reason):
             #expect(harness.notices.shown == [.copiedToClipboard(reason)])
-            #expect(pasteboard.writes.map(\.string) == ["a\nb"])
+            #expect(pasteboard.writes.map(\.string) == ["  a\nb "])
             #expect(pasteboard.writes.map(\.transient) == [false])
         }
     }

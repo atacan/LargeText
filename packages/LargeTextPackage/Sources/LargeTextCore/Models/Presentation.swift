@@ -15,12 +15,9 @@ package enum ZoomStep: Equatable, Sendable {
 package struct TargetHints: Equatable, Sendable {
     /// `InsertionRoute.decide(...)` is `.copyOnly`.
     package var willCopyToClipboard: Bool
-    /// `InsertionTextPolicy.flattensNewlines(for:)`.
-    package var flattensNewlines: Bool
 
-    package init(willCopyToClipboard: Bool = false, flattensNewlines: Bool = false) {
+    package init(willCopyToClipboard: Bool = false) {
         self.willCopyToClipboard = willCopyToClipboard
-        self.flattensNewlines = flattensNewlines
     }
 }
 

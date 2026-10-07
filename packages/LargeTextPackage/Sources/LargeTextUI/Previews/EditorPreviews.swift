@@ -33,15 +33,10 @@ private let safari = OverlayChrome(
     )
 }
 
-#Preview("Flattens newlines") {
+#Preview("Multi-line") {
     editorPreview(
-        "git status\ngit diff",
-        chrome: OverlayChrome(
-            fontSize: FontSize(points: 64),
-            targetName: "Terminal",
-            targetBundleIdentifier: "com.apple.Terminal",
-            hints: TargetHints(flattensNewlines: true)
-        )
+        "  Dear team,\n\nSee you at 10.",
+        chrome: OverlayChrome(fontSize: FontSize(points: 64), targetName: "Mail", targetBundleIdentifier: "com.apple.mail")
     )
 }
 

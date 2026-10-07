@@ -66,11 +66,7 @@ package final class EditingSessionCoordinator {
         }
 
         let route = InsertionRoute.decide(target: target, permissions: dependencies.permissions.current)
-        let hints = TargetHints(
-            willCopyToClipboard: route != .paste,
-            // Copy-only exits put the text on the clipboard unchanged, so flattening only applies to `.paste`.
-            flattensNewlines: route == .paste && InsertionTextPolicy.flattensNewlines(for: target)
-        )
+        let hints = TargetHints(willCopyToClipboard: route != .paste)
         let chrome = OverlayChrome(
             fontSize: FontSizePolicy.clamp(dependencies.preferences.fontSize),
             targetName: target.application?.localizedName,
@@ -101,8 +97,9 @@ package final class EditingSessionCoordinator {
         let text = await dependencies.overlay.dismiss()
         defer { finish(session) }
 
-        guard !text.isBlank else {
-            Logger.core.info("Session \(session.id): blank commit")
+        // Whitespace is the user's text too; only an empty editor means "nothing to insert".
+        guard !text.isEmpty else {
+            Logger.core.info("Session \(session.id): empty commit")
             return
         }
         let outcome = await dependencies.inserter.insert(text, into: session.target, mode: mode)
@@ -121,7 +118,7 @@ package final class EditingSessionCoordinator {
     private func cancel(_ session: EditingSession, reason: CancelReason) async {
         phase = .closing(sessionID: session.id)
         let text = await dependencies.overlay.dismiss()
-        draft = text.isBlank ? nil : text
+        draft = text.isEmpty ? nil : text
         Logger.core.info("Session \(session.id): cancelled (\(String(describing: reason)))")
         finish(session)
     }
@@ -140,8 +137,4 @@ package final class EditingSessionCoordinator {
         chrome = nil
         phase = .idle
     }
-}
-
-private extension String {
-    var isBlank: Bool { allSatisfy(\.isWhitespace) }
 }

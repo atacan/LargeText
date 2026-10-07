@@ -32,7 +32,7 @@ struct EditingSessionCoordinatorTests {
             targetName: "Safari",
             targetBundleIdentifier: "com.apple.Safari",
             targetFrame: Fixtures.frame,
-            hints: TargetHints(willCopyToClipboard: false, flattensNewlines: true)
+            hints: TargetHints(willCopyToClipboard: false)
         ))
     }
 
@@ -90,13 +90,13 @@ struct EditingSessionCoordinatorTests {
         #expect(harness.overlay.lastInitialText == "selected")
     }
 
-    @Test func blankCancelClearsDraft() async throws {
+    @Test func emptyCancelClearsDraft() async throws {
         let harness = CoordinatorHarness()
         let first = try #require(await harness.open())
         harness.overlay.textToReturn = "draft"
         await harness.send(.cancel(.userCancelled), to: first)
         let second = try #require(await harness.open())
-        harness.overlay.textToReturn = "  \n"
+        harness.overlay.textToReturn = ""
         await harness.send(.cancel(.userCancelled), to: second)
 
         _ = try #require(await harness.open())
@@ -104,7 +104,18 @@ struct EditingSessionCoordinatorTests {
         #expect(harness.overlay.lastInitialText == "")
     }
 
-    @Test func nonBlankCommitClearsDraft() async throws {
+    @Test func whitespaceOnlyCancelIsKeptAsDraft() async throws {
+        let harness = CoordinatorHarness()
+        let first = try #require(await harness.open())
+        harness.overlay.textToReturn = "  \n"
+        await harness.send(.cancel(.userCancelled), to: first)
+
+        _ = try #require(await harness.open())
+
+        #expect(harness.overlay.lastInitialText == "  \n")
+    }
+
+    @Test func nonEmptyCommitClearsDraft() async throws {
         let harness = CoordinatorHarness()
         let first = try #require(await harness.open())
         harness.overlay.textToReturn = "draft"
@@ -118,13 +129,23 @@ struct EditingSessionCoordinatorTests {
         #expect(harness.overlay.lastInitialText == "")
     }
 
-    @Test func blankCommitLeavesDraftUntouched() async throws {
+    @Test func whitespaceOnlyCommitIsInserted() async throws {
+        let harness = CoordinatorHarness()
+        let id = try #require(await harness.open())
+        harness.overlay.textToReturn = " \t\n "
+        await harness.send(.commit(.insert), to: id)
+
+        #expect(harness.inserter.calls.count == 1)
+        #expect(harness.coordinator.phase == .idle)
+    }
+
+    @Test func emptyCommitLeavesDraftUntouched() async throws {
         let harness = CoordinatorHarness()
         let first = try #require(await harness.open())
         harness.overlay.textToReturn = "draft"
         await harness.send(.cancel(.userCancelled), to: first)
         let second = try #require(await harness.open())
-        harness.overlay.textToReturn = " \t\n "
+        harness.overlay.textToReturn = ""
         await harness.send(.commit(.insertAndSubmit), to: second)
 
         #expect(harness.inserter.calls.isEmpty)

@@ -102,7 +102,7 @@ and the log durations.
 
 ### Targets
 
-- [ ] Safari URL bar (selection prefill; single-line → newlines flattened; ⌘↩ navigates)
+- [ ] Safari URL bar (selection prefill; ⌘↩ navigates; note how the field handles pasted line breaks)
 - [ ] Chrome omnibox (element usually unknown → still pastes)
 - [ ] Firefox URL bar and a web text field
 - [ ] TextEdit (multi-line; ⇧↩ newlines preserved)
@@ -110,7 +110,7 @@ and the log durations.
 - [ ] Slack (Electron)
 - [ ] VS Code (Electron)
 - [ ] Gmail compose in a browser (contenteditable; `AXGroup`/`AXWebArea` → unknown → paste)
-- [ ] Terminal (newline-flattening hint in the header; multi-line text arrives as one line)
+- [ ] Terminal (multi-line text is pasted as-is; check the terminal's bracketed-paste / multi-line paste warning)
 - [ ] iTerm2 (same)
 - [ ] A password field (Safari login form, System Settings) → HUD "Password fields aren't supported",
       overlay never shown
@@ -135,7 +135,8 @@ and the log durations.
 
 - [ ] ↩ insert · ⌘↩ insert & submit · ⇧↩/⌥↩ newline · ⎋ cancel (draft kept) · backdrop click cancel
 - [ ] ⌘= / ⌘+ / ⌘- / ⌘0 zoom; size persists across sessions (not in scenarios)
-- [ ] Blank commit closes without inserting and leaves the draft untouched
+- [ ] Empty commit closes without inserting and leaves the draft untouched
+- [ ] Leading/trailing spaces, tabs and whitespace-only text are inserted exactly as typed
 - [ ] Hotkey while open = commit
 - [ ] Status menu: permission row (granted ✓ / Grant Access… / Relaunch), Quit
 
@@ -149,8 +150,8 @@ From `Core` logs per session: capture time, focus-return time and pid, paste tim
 - **IME composition on commit:** `dismiss()` calls `discardMarkedText()` and then `unmarkText()`, so an
   unfinished Japanese/Chinese composition is *kept* in the committed text rather than dropped (§2.3 says
   discard). Check which behaviour feels right with a Japanese IME.
-- **Newline hint:** the "Line breaks become spaces" header hint is shown only when the route is paste.
-  Copy-only exits put the text on the clipboard unflattened, so the hint would be wrong there.
+- **Text is inserted verbatim:** whitespace and line breaks are never altered; the target field decides
+  how to handle them (plan revision 5).
 - **Back-to-back commits:** a second commit within the 600 ms window reuses the first commit's
   clipboard snapshot, so the user's original clipboard is what comes back. Quitting flushes a pending one.
 - **Not yet measured:** clipboard snapshot cost with very large clipboard contents (e.g. a big image);

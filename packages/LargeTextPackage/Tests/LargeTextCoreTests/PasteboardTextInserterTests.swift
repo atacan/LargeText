@@ -91,18 +91,21 @@ struct PasteboardTextInserterTests {
         ])
     }
 
-    @Test func newlinesAreFlattenedForTerminals() async {
-        focus.keyboardFocusProcessIdentifier = Fixtures.terminal.processIdentifier
+    @Test(arguments: [ElementKind.singleLineText, .multiLineText, nil])
+    func textIsPastedVerbatim(kind: ElementKind?) async {
+        let text = "  leading\n\ttabbed\r\ntrailing  "
 
-        _ = await inserter.insert("ls\nrm -rf x", into: Fixtures.target(Fixtures.terminal, kind: nil), mode: .insert)
+        _ = await inserter.insert(text, into: Fixtures.target(kind: kind), mode: .insert)
 
-        #expect(pasteboard.writes.map(\.string) == ["ls rm -rf x"])
+        #expect(pasteboard.writes.map(\.string) == [text])
     }
 
-    @Test func newlinesAreKeptForMultiLineFields() async {
-        _ = await inserter.insert("a\nb", into: Fixtures.target(kind: .multiLineText), mode: .insert)
+    @Test func terminalsGetLineBreaksToo() async {
+        focus.keyboardFocusProcessIdentifier = Fixtures.terminal.processIdentifier
 
-        #expect(pasteboard.writes.map(\.string) == ["a\nb"])
+        _ = await inserter.insert(" ls\npwd", into: Fixtures.target(Fixtures.terminal, kind: nil), mode: .insert)
+
+        #expect(pasteboard.writes.map(\.string) == [" ls\npwd"])
     }
 
     // MARK: - Focus guard and modifiers

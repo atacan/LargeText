@@ -167,8 +167,9 @@ paste it by hand, so clipboard-manager history is fine here.
    sleeper cannot hang. If keys are still held, copy only with `.modifiersHeld`. ⌘V is never posted then:
    a held ⌘ would turn the submit ↩ into ⌘↩, which opens a new browser tab. This step runs *before* the
    snapshot, so a failed wait never costs a pasteboard read.
-4. **Text policy.** `InsertionTextPolicy.prepare(text, for: target)` replaces newlines with spaces when
-   `InsertionTextPolicy.flattensNewlines(for: target)` is true. That is the case for single-line roles
+4. **Text is pasted verbatim** *(revision 5: the newline-flattening policy below was removed; whitespace
+   and line breaks are never altered, and the target decides how to handle them)*. ~~`InsertionTextPolicy.prepare(text, for: target)` replaces newlines with spaces when
+   `InsertionTextPolicy.flattensNewlines(for: target)` is true.~~ That is the case for single-line roles
    (`AXTextField`, `AXSearchField`, `AXComboBox`) and for known terminal bundle ids (Terminal, iTerm2,
    Ghostty, Warp, …). Pasting multi-line text into a shell can execute commands.
 5. **Snapshot** the general pasteboard according to `preferences.clipboardRestore`:
@@ -368,7 +369,6 @@ enum FontSizePolicy {                                         // default 64, ran
 }
 struct TargetHints: Equatable, Sendable {
     var willCopyToClipboard: Bool         // InsertionRoute.decide(...) is .copyOnly
-    var flattensNewlines: Bool            // InsertionTextPolicy.flattensNewlines(for:)
 }
 struct OverlayChrome: Equatable, Sendable {                   // everything the overlay draws except the text
     var fontSize: FontSize
@@ -501,8 +501,8 @@ immediately.
 | idle | `toggle()`, target `.secureText` | notice `.secureFieldUnsupported` → idle (overlay never shown) |
 | idle | `toggle()` | capture focus; initial text = selection ?? draft ?? ""; hints from `InsertionRoute` and `InsertionTextPolicy` → present → **editing** |
 | editing | `toggle()` | same as `.commit(.insert)` |
-| editing | `.commit(mode)` | **closing** → `text = await dismiss()` → if blank → **idle** (draft untouched); else `await inserter.insert` → notice for `.copiedToClipboard` / `clipboardOverwritten` → draft = nil → **idle** |
-| editing | `.cancel(reason)` | **closing** → `text = await dismiss()` → draft = text if non-blank → **idle** |
+| editing | `.commit(mode)` | **closing** → `text = await dismiss()` → if empty → **idle** (draft untouched); else `await inserter.insert` → notice for `.copiedToClipboard` / `clipboardOverwritten` → draft = nil → **idle** |
+| editing | `.cancel(reason)` | **closing** → `text = await dismiss()` → draft = text if non-empty → **idle** |
 | editing | `.zoom(step)` | `FontSizePolicy.apply` → persist → `overlay.update(chrome)` |
 | closing | `toggle()` or any intent | ignored |
 | any | intent with a stale `sessionID` | ignored |
@@ -800,7 +800,7 @@ Out of scope for v1:
 | Clipboard managers or Universal Clipboard pick up our text | Transient markers on the paste path; `.currentHostOnly` always. |
 | Modifiers still held | HID polling bounded by a count → `.modifiersHeld` copy-only; `.privateState` source; full ⌘ down/up sequence. |
 | Non-QWERTY / non-Latin layouts | ASCII-capable layout for the key code; zoom bindings matched by character and by key code. |
-| Multi-line paste executes commands in a terminal | `InsertionTextPolicy` plus the `flattensNewlines` header hint. |
+| Multi-line paste executes commands in a terminal | Accepted (rev 5): text is pasted verbatim; modern terminals use bracketed paste / multi-line paste warnings. |
 | Hung target blocks AX | 0.1 s global timeout, batched reads, AX skipped for our own pid. |
 | Overlay level above system prompts | We never trigger prompts during a session; spike 0h covers the one the system triggers (⌘V inside the editor). |
 | Undo history leaking across sessions | `removeAllActions()` in `present`. |
@@ -895,3 +895,9 @@ Out of scope for v1:
 | The pid guard was weaker than claimed | Focused-application pid via AX; claim toned down in §6 (§2.5). |
 | Reviewer follow-up (agreed: ready to implement) | The coordinator builds the `intents` closure; second-display menu bar wording; `ElementKind.classify` returns an optional; Kit tests depend on Core; `ClipboardWriter` in milestone 2; restore moved to a tail task so `closing` ends at paste; public-surface wording; Release-scenario and hint-drift notes. |
 | Nice-to-haves | Resign-key rule simplified; backdrop click defined; backdrop covers the menu bar; `onPhaseChange` dropped; `.clipboardReplaced` notice and `defaults` key; modifier wait before the snapshot; non-transient copy-only writes; `AppAssembly` folded into `AppEnvironment`; explicit `@MainActor` on the inserter; behavioural Kit test; HUD level and spaces behaviour; new spike items. |
+
+### Hands-on feedback → revision 5
+| Finding | Change |
+|---|---|
+| Line breaks were turned into spaces for single-line fields and terminals; many editors support line breaks | `InsertionTextPolicy` and the `flattensNewlines` hint removed. Text is pasted verbatim and the target decides. |
+| Whitespace must be respected | Only an *empty* editor counts as "nothing to insert"; whitespace-only text is inserted and kept as a draft. Tests assert leading/trailing whitespace survives editor → dismiss → pasteboard. |
