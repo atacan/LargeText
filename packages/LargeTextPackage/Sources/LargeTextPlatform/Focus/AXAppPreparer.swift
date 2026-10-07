@@ -62,6 +62,12 @@ package final class AXAppPreparer {
         return error == .success ? .prepared : .failed(error)
     }
 
+    /// Whether `prepareIfNeeded` could still act on `pid`: it hasn't been examined and its family is one this
+    /// preparer handles. Lets the reader skip the child-count call for every other app.
+    package func mayPrepare(pid: pid_t, family: AXAppFamily) -> Bool {
+        !examinedPIDs.contains(pid) && families.contains(family)
+    }
+
     /// A hit worth preparing the app for: no element at all, or an `AXWebArea` or `AXGroup` without children.
     package static func isEmptyHit(role: String?, childCount: Int?) -> Bool {
         guard let role else { return true }

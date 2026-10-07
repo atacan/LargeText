@@ -7,6 +7,8 @@ package struct AXHitTarget {
     package let element: AXUIElement
     package let pid: pid_t
     package let bundleIdentifier: String?
+    /// For the card's "Reading from …" header.
+    package let localizedName: String?
     package let family: AXAppFamily
 }
 
@@ -53,6 +55,7 @@ package struct AXHitTester {
             element: element,
             pid: owner,
             bundleIdentifier: bundleIdentifier,
+            localizedName: app?.localizedName,
             family: AXAppFamily.classify(bundleIdentifier: bundleIdentifier, bundleURL: app?.bundleURL)
         ))
     }

@@ -78,6 +78,16 @@ import Testing
         #expect(spy.pids == [9])
     }
 
+    @Test func mayPrepareOnlyUnexaminedPidsOfHandledFamilies() {
+        let preparer = makePreparer(families: [.electron])
+
+        #expect(preparer.mayPrepare(pid: 5, family: .electron))
+        #expect(!preparer.mayPrepare(pid: 5, family: .native))
+        preparer.prepareIfNeeded(pid: 5, bundleIdentifier: nil, family: .electron)
+        #expect(!preparer.mayPrepare(pid: 5, family: .electron))
+        #expect(spy.pids == [5])
+    }
+
     @Test func emptyHits() {
         #expect(AXAppPreparer.isEmptyHit(role: nil, childCount: nil))
         #expect(AXAppPreparer.isEmptyHit(role: "AXWebArea", childCount: 0))

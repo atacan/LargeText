@@ -144,7 +144,7 @@ package final class ReadingSessionCoordinator {
         case .permissionMissing:
             send(.forceClose(.permissionMissing))
             return
-        case .nothing, nil:
+        case .nothing, .ownWindow, nil:
             send(.forceClose(.nothingToRead))
             return
         }
@@ -257,13 +257,18 @@ package final class ReadingSessionCoordinator {
         }
         switch gesture.phase {
         case .following:
-            display(result, seq: seq, in: session)
+            if result == .ownWindow {
+                // Our own card or highlight is under the pointer: keep what is shown (§4.2).
+                Logger.core.debug("Reader session \(sessionID): result \(seq) over our own window; no update")
+            } else {
+                display(result, seq: seq, in: session)
+            }
             if gesture.phase == .following, session.read == nil,
                let pending = session.pendingPoint, shouldRead(at: pending, in: session) {
                 startRead(at: pending, in: session)
             }
         case .pinnedAwaitingFirst:
-            session.displayed = result
+            session.displayed = result == .ownWindow ? .nothing : result
             session.displayedSeq = seq
             send(.firstResultArrived)
         case .idle, .pinned, .closing:
@@ -284,7 +289,7 @@ package final class ReadingSessionCoordinator {
         let content: ReaderContent = switch result {
         case .text(let text): .text(text.text, scrollToUTF16: Self.pointerOffset(in: text))
         case .hidden: .hidden
-        case .nothing, .permissionMissing: .nothing
+        case .nothing, .permissionMissing, .ownWindow: .nothing
         }
         let chrome = chrome(for: result, mode: .following, in: session)
         if session.shown == nil {

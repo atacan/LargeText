@@ -133,6 +133,36 @@ struct ReadingSessionCoordinatorTests {
         #expect(harness.coordinator.phase == .following)
     }
 
+    // MARK: - Own window under the pointer (§4.2)
+
+    @Test func ownWindowWhileFollowingKeepsTheShownCardAndReadsOn() async {
+        let harness = ReaderHarness()
+        await harness.pressAndWaitForRead()
+        await harness.complete(0, with: ReaderFixtures.text("A"))
+        harness.move(toX: 300)
+        await harness.reader.waitForCalls(2)
+
+        await harness.complete(1, with: .ownWindow)
+        harness.move(toX: 500)
+        await harness.reader.waitForCalls(3)
+
+        #expect(harness.presenter.updates.isEmpty)
+        #expect(harness.presenter.lastShown?.content == .text("A", scrollToUTF16: nil))
+        #expect(harness.coordinator.phase == .following)
+    }
+
+    @Test func ownWindowOnTapCountsAsNothing() async {
+        let harness = ReaderHarness()
+        await harness.pressAndWaitForRead()
+        harness.release(at: 10.1)
+
+        await harness.complete(0, with: .ownWindow)
+
+        #expect(harness.coordinator.isIdle)
+        #expect(harness.notices.shown == [.nothingToRead])
+        #expect(harness.presenter.presented.isEmpty)
+    }
+
     // MARK: - Stale results
 
     @Test func resultFromAnEndedSessionIsDroppedEvenWithTheSameSeq() async {

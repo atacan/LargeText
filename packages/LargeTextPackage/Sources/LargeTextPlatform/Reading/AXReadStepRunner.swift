@@ -92,7 +92,7 @@ package struct AXReadStepRunner {
         }
     }
 
-    private static func milliseconds(since start: ContinuousClock.Instant) -> Double {
+    static func milliseconds(since start: ContinuousClock.Instant) -> Double {
         let elapsed = ContinuousClock.now - start
         return Double(elapsed.components.seconds) * 1_000 + Double(elapsed.components.attoseconds) / 1e15
     }

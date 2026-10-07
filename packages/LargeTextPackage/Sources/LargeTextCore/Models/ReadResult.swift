@@ -7,6 +7,10 @@ package enum ReadResult: Equatable, Sendable {
     /// A secure element or a denylisted app. Never carries the text.
     case hidden
     case nothing
+    /// The pointer is over one of our own windows (the card or the highlight), so there is nothing to read
+    /// in the app below. The reader can't tell following from a tap; the coordinator decides: no update
+    /// while following, so the last result stays, and `.nothing` on a tap (§4.2).
+    case ownWindow
     /// Accessibility isn't trusted (or was revoked mid-session).
     case permissionMissing
 }
