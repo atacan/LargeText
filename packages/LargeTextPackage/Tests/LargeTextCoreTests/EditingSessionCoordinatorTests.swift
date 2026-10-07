@@ -17,6 +17,7 @@ struct EditingSessionCoordinatorTests {
         #expect(harness.log.events == [.notice(.secureFieldUnsupported)])
         #expect(harness.overlay.presentCount == 0)
         #expect(harness.coordinator.phase == .idle)
+        #expect(harness.coordinator.isIdle)
     }
 
     @Test func toggleFromIdlePresentsWithFullChrome() async throws {
@@ -26,6 +27,7 @@ struct EditingSessionCoordinatorTests {
         let id = try #require(await harness.open())
 
         #expect(harness.coordinator.phase == .editing(sessionID: id))
+        #expect(!harness.coordinator.isIdle)
         #expect(harness.log.events == [.present(initialText: "apple.com")])
         #expect(harness.overlay.lastChrome == OverlayChrome(
             fontSize: FontSize(points: 80),

@@ -12,6 +12,8 @@ package final class EditingSessionCoordinator {
     }
 
     package private(set) var phase: Phase = .idle
+    /// The reader shortcut is ignored unless this is true (§4.8).
+    package var isIdle: Bool { phase == .idle }
 
     private let dependencies: CoreDependencies
     private var session: EditingSession?

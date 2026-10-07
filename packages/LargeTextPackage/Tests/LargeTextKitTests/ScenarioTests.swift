@@ -54,6 +54,7 @@ import Testing
     @Test func rawValuesRoundTrip() {
         #expect(Scenario.allCases.map(\.rawValue) == [
             "overlay-prefilled", "no-editable-target", "permission-missing", "logging-insertion",
+            "reader-stub", "reader-no-accessibility", "reader-probe",
         ])
         for scenario in Scenario.allCases {
             #expect(Scenario(rawValue: scenario.rawValue) == scenario)
@@ -155,5 +156,75 @@ import Testing
         #expect(pasteboard.writes.map(\.transient) == [true])
         #expect(keystrokes.sent == [.paste])
         #expect(notices.shown.isEmpty)
+    }
+
+    // MARK: - Reader
+
+    func sample(x: CGFloat) -> PointerSample {
+        PointerSample(appKit: CGPoint(x: x, y: 500), global: CGPoint(x: x, y: 400))
+    }
+
+    @Test func readerStubAnswersByPointerX() async throws {
+        var environment = environment()
+        Scenario.readerStub.apply(to: &environment)
+        let reader = try #require(environment.textReader as? StubTextReader)
+
+        var results: [ReadResult] = []
+        for x in [10, 450, 900, 1_300, 5_000] as [CGFloat] {
+            results.append(await reader.read(at: sample(x: x), granularity: .sentence, policy: .standard))
+        }
+
+        #expect(results == [Scenario.stubLabel, Scenario.stubParagraph, .nothing, .hidden, .hidden])
+    }
+
+    @Test func readerStubNeedsNoAccessibilityAndNeverPastes() {
+        var environment = environment()
+        Scenario.readerStub.apply(to: &environment)
+
+        #expect(environment.permissions.current == .allGranted)
+        #expect(environment.permissions !== permissions)
+        #expect(environment.inserterOverride is LoggingTextInserter)
+        #expect(environment.readerDependencies().textReader is StubTextReader)
+    }
+
+    @Test func readerStubShowsACardThroughTheCoordinator() async {
+        var environment = environment()
+        let presenter = SpyReaderPresenter()
+        environment.readerPresenter = presenter
+        environment.pointer = ScriptedPointer(current: sample(x: 10))
+        Scenario.readerStub.apply(to: &environment)
+        let reader = ReadingSessionCoordinator(dependencies: environment.readerDependencies())
+
+        reader.hotkey(HotkeyEvent(phase: .pressed, at: 10))
+        reader.hotkey(HotkeyEvent(phase: .released, at: 10))
+        while presenter.presented.isEmpty { await Task.yield() }
+
+        #expect(presenter.presented.map(\.content) == [.text("Open Large Editor", scrollToUTF16: nil)])
+        #expect(presenter.presented.map(\.chrome.mode) == [.pinned])
+    }
+
+    @Test func readerNoAccessibilityShowsTheNoticeInsteadOfACard() {
+        var environment = environment()
+        let presenter = SpyReaderPresenter()
+        environment.readerPresenter = presenter
+        Scenario.readerNoAccessibility.apply(to: &environment)
+        let reader = ReadingSessionCoordinator(dependencies: environment.readerDependencies())
+
+        reader.hotkey(HotkeyEvent(phase: .pressed, at: 10))
+
+        #expect(environment.permissions.current == .allDenied)
+        #expect(reader.isIdle)
+        #expect(notices.shown == [.readerNeedsAccessibility])
+        #expect(presenter.presented.isEmpty)
+    }
+
+    @Test func readerProbeKeepsTheReaderServices() {
+        var environment = environment()
+        let reader = environment.textReader
+        Scenario.readerProbe.apply(to: &environment)
+
+        #expect(environment.permissions === permissions)
+        #expect(environment.inserterOverride == nil)
+        #expect(type(of: environment.textReader) == type(of: reader))
     }
 }

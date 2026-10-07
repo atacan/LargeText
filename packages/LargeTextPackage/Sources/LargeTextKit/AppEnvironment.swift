@@ -6,7 +6,8 @@ import LargeTextUI
 /// Every side-effecting service the app uses, as plain instances (§3.9).
 ///
 /// Constructing one has no side effects: adapters defer observers, prompts, Carbon handlers and windows
-/// until first use. A `Scenario` mutates this value before `coreDependencies()` assembles it.
+/// until first use. A `Scenario` (via `LaunchConfiguration.apply(to:)`) mutates this value before
+/// `coreDependencies()` and `readerDependencies(timing:)` assemble it.
 package struct AppEnvironment {
     package var hotkeys: any HotkeyRegistering
     package var focus: any FocusCapturing
@@ -71,11 +72,11 @@ package struct AppEnvironment {
             sleeper: TaskSleeper(),
             overlay: OverlayWindowController(),
             notices: HUDNoticePresenter(),
-            // Fakes until the integration phase swaps in the live reader, pointer, key-state and panel types.
-            textReader: StubTextReader(),
-            pointer: ScriptedPointer(),
-            keyState: FixedKeyState(),
-            readerPresenter: LoggingReaderPresenter()
+            textReader: AccessibilityTextReader(),
+            pointer: SystemPointerTracker(),
+            // Spike R1 decides between `.keyState` and the modifier fallback.
+            keyState: SystemKeyStateReader(mode: .keyState),
+            readerPresenter: ReaderWindowController()
         )
     }
 
@@ -97,6 +98,23 @@ package struct AppEnvironment {
             overlay: overlay,
             notices: notices,
             preferences: preferences
+        )
+    }
+
+    /// Assembles the reading coordinator's dependencies, after any scenario mutation like `coreDependencies()`.
+    /// - Parameter timing: `.standard`, or no cap for the `following` launch state.
+    @MainActor
+    package func readerDependencies(timing: ReaderTiming = .standard) -> ReaderDependencies {
+        ReaderDependencies(
+            textReader: textReader,
+            pointer: pointer,
+            keyState: keyState,
+            presenter: readerPresenter,
+            notices: notices,
+            preferences: preferences,
+            permissions: permissions,
+            sleeper: sleeper,
+            timing: timing
         )
     }
 }

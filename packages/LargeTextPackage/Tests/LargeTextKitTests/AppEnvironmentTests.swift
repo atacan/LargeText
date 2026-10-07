@@ -17,6 +17,41 @@ import Testing
         #expect(environment.notices is HUDNoticePresenter)
         #expect(environment.inserterOverride == nil)
         #expect(environment.coreDependencies().inserter is PasteboardTextInserter)
+        #expect(environment.textReader is AccessibilityTextReader)
+        #expect(environment.pointer is SystemPointerTracker)
+        #expect(environment.keyState is SystemKeyStateReader)
+        #expect(environment.readerPresenter is ReaderWindowController)
+    }
+
+    @Test func readerDependenciesAreAssembledFromTheEnvironment() {
+        let preferences = InMemoryPreferencesStore()
+        let notices = SpyNotices()
+        let presenter = SpyReaderPresenter()
+        let pointer = ScriptedPointer()
+        let environment = AppEnvironment(
+            hotkeys: SpyHotkeys(),
+            focus: StubFocusCapturer(target: FocusTarget(application: nil)),
+            permissions: FixedPermissions(.allGranted),
+            pasteboard: FakePasteboard(),
+            keystrokes: RecordingKeystrokes(),
+            preferences: preferences,
+            sleeper: InstantSleeper(),
+            overlay: SpyOverlay(),
+            notices: notices,
+            pointer: pointer,
+            readerPresenter: presenter
+        )
+        let timing = ReaderTiming(maxFollowDuration: nil)
+
+        let dependencies = environment.readerDependencies(timing: timing)
+
+        #expect(dependencies.presenter === presenter)
+        #expect(dependencies.pointer === pointer)
+        #expect(dependencies.notices === notices)
+        #expect(dependencies.preferences === preferences)
+        #expect(dependencies.textReader is StubTextReader)
+        #expect(dependencies.timing == timing)
+        #expect(environment.readerDependencies().timing == .standard)
     }
 
     @Test func readerServicesDefaultToCoreFakes() {
