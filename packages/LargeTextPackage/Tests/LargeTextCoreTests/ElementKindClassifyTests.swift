@@ -1,6 +1,5 @@
-import LargeTextCore
 import Testing
-@testable import LargeTextPlatform
+import LargeTextCore
 
 @Suite struct ElementKindClassifyTests {
     @Test(arguments: [

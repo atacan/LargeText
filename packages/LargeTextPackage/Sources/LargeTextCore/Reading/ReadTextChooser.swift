@@ -2,10 +2,6 @@ import Foundation
 
 /// Picks the text to show from the final `ReadCandidates`: the §3.3 ladder. Pure.
 package enum ReadTextChooser {
-    /// The role and subrole of password fields. Mirrors the `.secureText` case of Platform's
-    /// `ElementKind.classify(role:subrole:)`, which Core can't call.
-    package static let secureTextRole = "AXSecureTextField"
-
     /// The ladder:
     /// 1. hidden content (a secure element, a secure element met in a walk, a denylisted app);
     /// 2. the selection under the pointer;
@@ -76,7 +72,7 @@ package enum ReadTextChooser {
     /// Platform checks the denylist before stage 0; this repeats it as defence in depth.
     package static func isHidden(_ candidates: ReadCandidates, policy: ReadPolicy) -> Bool {
         if candidates.hiddenEncountered { return true }
-        if candidates.role == secureTextRole || candidates.subrole == secureTextRole { return true }
+        if ElementKind.classify(role: candidates.role, subrole: candidates.subrole) == .secureText { return true }
         if let bundleIdentifier = candidates.bundleIdentifier, policy.denylist.contains(bundleIdentifier) {
             return true
         }
