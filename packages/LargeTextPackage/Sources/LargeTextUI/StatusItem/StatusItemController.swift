@@ -113,7 +113,11 @@ package final class StatusItemController: NSObject, NSMenuDelegate {
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [
             "-c",
-            "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.1; done; /usr/bin/open \"$0\"",
+            // Gives up after ~10 s in case termination is ever cancelled.
+            """
+            i=0; while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do \
+            [ $i -ge 100 ] && exit 1; i=$((i+1)); sleep 0.1; done; /usr/bin/open "$0"
+            """,
             Bundle.main.bundlePath,
         ]
         do {

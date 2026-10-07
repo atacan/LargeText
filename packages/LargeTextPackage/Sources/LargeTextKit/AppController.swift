@@ -14,6 +14,7 @@ package final class AppController: NSObject, NSApplicationDelegate {
     package private(set) var coordinator: EditingSessionCoordinator?
     private var statusItem: StatusItemController?
     private var hotkeyRegistration: (any HotkeyRegistration)?
+    private var inserter: (any TextInserting)?
 
     /// Stores only; no side effects.
     package init(environment: AppEnvironment, launch: LaunchConfiguration) {
@@ -47,8 +48,10 @@ package final class AppController: NSObject, NSApplicationDelegate {
         NSApplication.shared.setActivationPolicy(.accessory)
 
         // 2. Coordinator. Assembly runs after any scenario mutation.
-        let coordinator = EditingSessionCoordinator(dependencies: environment.coreDependencies())
+        let dependencies = environment.coreDependencies()
+        let coordinator = EditingSessionCoordinator(dependencies: dependencies)
         self.coordinator = coordinator
+        inserter = dependencies.inserter
 
         // 3. Status item.
         let hotkey = environment.preferences.hotkey
@@ -72,11 +75,16 @@ package final class AppController: NSObject, NSApplicationDelegate {
         }
 
         // 5. Ask for Accessibility once, outside any session. (The AX messaging timeout is configured
-        //    lazily by AccessibilityFocusCapturer on first use.)
+        //    lazily by AccessibilityFocusCapturer on first use.) With --present-on-launch the overlay
+        //    would cover the system prompt (§2.2), so the request is left to the status menu.
         let permissions = environment.permissions.current
         if permissions.accessibility == .denied || permissions.eventPosting == .denied {
-            Logger.kit.info("Accessibility or event posting missing; requesting access")
-            environment.permissions.requestAccessibility()
+            if launch.presentOnLaunch {
+                Logger.kit.info("Access missing; prompt deferred because of --present-on-launch (use the status menu)")
+            } else {
+                Logger.kit.info("Accessibility or event posting missing; requesting access")
+                environment.permissions.requestAccessibility()
+            }
         } else if let system = environment.permissions as? SystemPermissionsProvider {
             system.logDiagnostics()
         }
@@ -88,6 +96,9 @@ package final class AppController: NSObject, NSApplicationDelegate {
     }
 
     package func stop() {
+        // Put the user's clipboard back now rather than losing it if we quit right after a paste.
+        (inserter as? PasteboardTextInserter)?.flushPendingRestore()
+        inserter = nil
         hotkeyRegistration?.unregister()
         hotkeyRegistration = nil
         statusItem?.remove()

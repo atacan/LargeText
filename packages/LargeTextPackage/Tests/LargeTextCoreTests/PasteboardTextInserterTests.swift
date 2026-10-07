@@ -149,6 +149,31 @@ struct PasteboardTextInserterTests {
         #expect(pasteboard.string == "someone else")
     }
 
+    @Test func backToBackPastesRestoreTheOriginalClipboard() async {
+        sleeper.heldDuration = Self.timing.restoreDelay
+
+        _ = await inserter.insert("first", into: Fixtures.target(), mode: .insert)
+        _ = await inserter.insert("second", into: Fixtures.target(), mode: .insert)
+        sleeper.releaseHeld()
+        await inserter.pendingRestore?.value
+
+        #expect(pasteboard.snapshotCount == 1)
+        #expect(pasteboard.restoredSnapshots.count == 1)
+        #expect(pasteboard.string == "original")
+    }
+
+    @Test func flushRestoresImmediately() async {
+        sleeper.heldDuration = Self.timing.restoreDelay
+
+        _ = await inserter.insert("hello", into: Fixtures.target(), mode: .insert)
+        inserter.flushPendingRestore()
+        #expect(pasteboard.string == "original")
+
+        sleeper.releaseHeld()
+        await inserter.pendingRestore?.value
+        #expect(pasteboard.restoredSnapshots.count == 1)
+    }
+
     @Test func noRestorePolicyOverwritesClipboard() async {
         preferences.clipboardRestore = .none
 

@@ -58,8 +58,8 @@ open -n /path/to/LargeText.app --args --scenario overlay-prefilled --present-on-
 | `--present-on-launch` (alone) | Opens the editor right after launch against whatever was frontmost. | Everything |
 
 All scenarios use in-memory preferences (zoom isn't persisted). Unknown scenario names are logged
-(`Kit` category) and ignored. Note: if Accessibility is missing at launch, the system prompt appears and
-`--present-on-launch` may cover it — grant access first.
+(`Kit` category) and ignored. Note: with `--present-on-launch`, the launch-time
+Accessibility prompt is skipped (the overlay would cover it); use *Grant Access…* in the status menu instead.
 
 ## Spike items (§5 milestone 0)
 
@@ -143,3 +143,15 @@ and the log durations.
 
 From `Core` logs per session: capture time, focus-return time and pid, paste time, restore outcome
 (restored / skipped because the pasteboard changed / lossy).
+
+## Deliberate deviations from the plan (confirm during hands-on)
+
+- **IME composition on commit:** `dismiss()` calls `discardMarkedText()` and then `unmarkText()`, so an
+  unfinished Japanese/Chinese composition is *kept* in the committed text rather than dropped (§2.3 says
+  discard). Check which behaviour feels right with a Japanese IME.
+- **Newline hint:** the "Line breaks become spaces" header hint is shown only when the route is paste.
+  Copy-only exits put the text on the clipboard unflattened, so the hint would be wrong there.
+- **Back-to-back commits:** a second commit within the 600 ms window reuses the first commit's
+  clipboard snapshot, so the user's original clipboard is what comes back. Quitting flushes a pending one.
+- **Not yet measured:** clipboard snapshot cost with very large clipboard contents (e.g. a big image);
+  watch the `Insertion: pasted … after …` log line during spike 0h.

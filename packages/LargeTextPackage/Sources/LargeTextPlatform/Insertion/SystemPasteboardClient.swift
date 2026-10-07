@@ -50,6 +50,7 @@ package final class SystemPasteboardClient: PasteboardClient {
     /// clipboard managers can tell the restore apart from a fresh copy.
     package func restore(_ snapshot: PasteboardSnapshot) {
         pasteboard.clearContents()
+        pasteboard.prepareForNewContents(with: .currentHostOnly)
         let items = snapshot.items.map { snapshotItem -> NSPasteboardItem in
             let item = NSPasteboardItem()
             for (type, data) in snapshotItem.dataByType {

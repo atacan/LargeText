@@ -14,6 +14,8 @@ package final class PasteboardTextInserter: TextInserting {
 
     /// The conditional clipboard restore of the most recent paste. Tests `await pendingRestore?.value`.
     package private(set) var pendingRestore: Task<Void, Never>?
+    /// The snapshot `pendingRestore` will put back, and the `changeCount` our write produced.
+    private var inFlight: (snapshot: PasteboardSnapshot, writtenChangeCount: Int)?
 
     package init(
         permissions: any PermissionsProviding,
@@ -75,9 +77,16 @@ package final class PasteboardTextInserter: TextInserting {
         let snapshot: PasteboardSnapshot?
         switch preferences.clipboardRestore {
         case .restore(let maxBytes):
-            let taken = pasteboard.snapshot(maxBytes: maxBytes)
-            if !taken.isComplete { Logger.core.info("Insertion: snapshot over budget; restore will be lossy") }
-            snapshot = taken
+            if let inFlight, pasteboard.changeCount == inFlight.writtenChangeCount {
+                // A previous paste's restore hasn't run yet, so the pasteboard still holds our own text.
+                // Reuse its snapshot; snapshotting now would make our text the thing that gets "restored".
+                pendingRestore?.cancel()
+                snapshot = inFlight.snapshot
+            } else {
+                let taken = pasteboard.snapshot(maxBytes: maxBytes)
+                if !taken.isComplete { Logger.core.info("Insertion: snapshot over budget; restore will be lossy") }
+                snapshot = taken
+            }
         case .none:
             snapshot = nil
         }
@@ -94,18 +103,35 @@ package final class PasteboardTextInserter: TextInserting {
 
         // 9. Return; restore in a tail task.
         guard let snapshot else {
+            pendingRestore?.cancel()
             pendingRestore = nil
+            inFlight = nil
             return .inserted(clipboardOverwritten: true)
         }
-        pendingRestore = Task { [pasteboard, sleeper, timing] in
+        inFlight = (snapshot, writtenChangeCount)
+        pendingRestore = Task { [sleeper, timing] in
             try? await sleeper.sleep(for: timing.restoreDelay)
-            guard pasteboard.changeCount == writtenChangeCount else {
-                Logger.core.info("Insertion: restore skipped; pasteboard changed since our write")
-                return
-            }
-            pasteboard.restore(snapshot)
-            Logger.core.info("Insertion: clipboard restored (complete: \(snapshot.isComplete))")
+            guard !Task.isCancelled else { return }
+            self.restoreIfUnchanged()
         }
         return .inserted(clipboardOverwritten: false)
+    }
+
+    /// Restores right away instead of waiting for `restoreDelay`, e.g. when the app quits.
+    package func flushPendingRestore() {
+        pendingRestore?.cancel()
+        pendingRestore = nil
+        restoreIfUnchanged()
+    }
+
+    private func restoreIfUnchanged() {
+        guard let inFlight else { return }
+        self.inFlight = nil
+        guard pasteboard.changeCount == inFlight.writtenChangeCount else {
+            Logger.core.info("Insertion: restore skipped; pasteboard changed since our write")
+            return
+        }
+        pasteboard.restore(inFlight.snapshot)
+        Logger.core.info("Insertion: clipboard restored (complete: \(inFlight.snapshot.isComplete))")
     }
 }
