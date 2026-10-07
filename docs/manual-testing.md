@@ -257,6 +257,50 @@ trusted`. The reader shortcut keeps working, so each spike can also watch the re
   instead, or measure `value` with a temporary change. These numbers decide whether per-pid back-off and
   a support cache are needed.
 
+#### Web content (R3, R5)
+
+The web path reads text markers on the page's `AXWebArea` (plan §4.3): in a web area `steps=[…]` is
+`selection, textMarkers` and a hit gives `result=text(source=unit, …)` (or `source=selection` over a
+selection). At debug level each step also logs, with attribute names and lengths only:
+
+```
+Text markers: AXSentenceTextMarkerRangeForTextMarker length=84 segmented=false pointerOffset=-1 shownLength=84 hasBounds=true
+Text markers: AXSentenceTextMarkerRangeForTextMarker gave no text
+Text markers: AXParagraphTextMarkerRangeForTextMarker length=412 segmented=true pointerOffset=133 shownLength=61 hasBounds=true
+Text markers: … unit not under the pointer
+Text markers: no AXWebArea above the hit element
+```
+
+`segmented=true` is the Gecko fallback: sentence ranges were missing or empty, so the paragraph (else the
+line) was fetched and cut to the sentence at `pointerOffset`, the length of the text from the paragraph's
+start to the pointer's marker. `pointerOffset=-1` there means the offset was unknown and the whole paragraph
+is shown. The highlight then outlines the paragraph, not the sentence. The `Probe parameterized:` line lists
+which marker attributes an element offers. For each check, hover over body text, a link, a heading and an
+image, then select a few words and hover over the selection and next to it.
+
+- [ ] **R5 Safari (WebKit).** Expect `webArea=true`, `steps=[selection, textMarkers]`, `segmented=false`,
+  the sentence outlined, and a selection read only while the pointer is on it. Repeat in Mail (an HTML
+  message).
+- [ ] **R3 Chrome, as it starts (no `AXManualAccessibility` yet).** Quit Chrome, relaunch it, and hold over a
+  page with nothing else reading it (no VoiceOver, no other AX client). Note what the first read shows: an
+  empty `role=AXWebArea` or `AXGroup` hit, `AXManualAccessibility on com.google.Chrome: enabled` (`Platform`,
+  info), then `retried=true`. Record whether the retry already gives `source=unit` or only later reads do.
+- [ ] **R3 Chrome with `AXManualAccessibility`.** Keep holding after that line: expect the same steps as
+  Safari. Record whether hit testing and markers worked *before* the attribute was set (then R3 says Chrome
+  doesn't need it). Repeat in Arc or Brave. `grep -rn AXEnhancedUserInterface packages` must stay limited to
+  the comment that says it is never set.
+- [ ] **R5 Firefox (Gecko).** Expect `segmented=true` on `AXParagraphTextMarkerRangeForTextMarker` if Gecko
+  has no sentence ranges. Check that the shown sentence is the one under the pointer at the start, middle and
+  end of a long paragraph, and in a paragraph with a link or bold text in it (the offset heuristic may drift
+  there). Note whether `AXSelectedTextMarkerRange` gives `source=selection`.
+- [ ] **R5 Electron (Slack or VS Code).** The first read sets `AXManualAccessibility` (as for Chrome). In
+  Slack hover over messages; in VS Code over the Markdown preview or the welcome page (the editor itself is a
+  native-looking text area with its own path). Expect `source=unit`.
+- [ ] Pin in each browser: the web sentence stays as it is (no paragraph re-read in v1). Note any page where
+  that feels wrong; it decides the deferred `pinSeq` paragraph read.
+- [ ] Record per engine: which marker attributes exist, `steps`, `segmented`, AX call count and duration.
+  These decide the scope of `AXTextMarkerReader` and whether the sentence fallback is enough.
+
 ### Reader checklist
 
 - [ ] Hold over text: the card follows, never takes focus from the app (its window stays key, the caret
@@ -285,4 +329,4 @@ trusted`. The reader shortcut keeps working, so each spike can also watch the re
       menu being tracked in another app, Mission Control, Stage Manager strips and the lock screen
       (expected: nothing). Note per app the `steps=[…]`, `source`, call count and duration, and any hover
       side effects of holding ⌃⌥⌘ (Xcode ⌘-hover links, ⌥ in Finder, macOS Hover Text). Web content in
-      browsers and Electron apps reads as labels or element text until the text-marker reader (phase 4).
+      browsers and Electron apps goes through text markers: see *Web content (R3, R5)* above.
