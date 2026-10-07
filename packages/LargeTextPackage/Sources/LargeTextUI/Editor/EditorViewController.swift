@@ -12,18 +12,13 @@ package final class EditorViewController: NSViewController, NSTextViewDelegate {
 
     private let scrollView = NSScrollView()
     private let card = CardView()
-    private let iconView = NSImageView()
-    private let titleLabel = NSTextField(labelWithString: EditorStrings.neutralTitle)
+    private let header = CardHeaderView()
     private let hintsLabel = NSTextField(labelWithString: "")
     private let footerLabel = NSTextField(labelWithString: EditorStrings.footer)
 
     private var editorHeight: NSLayoutConstraint?
-    private var iconWidth: NSLayoutConstraint?
-    private var iconHeight: NSLayoutConstraint?
 
     private var chrome = OverlayChrome(fontSize: FontSize(points: 64))
-    /// Outer optional: "not resolved yet"; inner: the bundle id the current icon belongs to.
-    private var iconBundleIdentifier: String??
 
     package init() {
         super.init(nibName: nil, bundle: nil)
@@ -78,14 +73,6 @@ package final class EditorViewController: NSViewController, NSTextViewDelegate {
         card.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(card)
 
-        iconView.imageScaling = .scaleProportionallyUpOrDown
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-
-        titleLabel.textColor = Theme.headerColor
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.maximumNumberOfLines = 1
-        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
         hintsLabel.textColor = Theme.hintColor
         hintsLabel.lineBreakMode = .byWordWrapping
         hintsLabel.maximumNumberOfLines = 0
@@ -106,12 +93,7 @@ package final class EditorViewController: NSViewController, NSTextViewDelegate {
         scrollView.scrollerStyle = .overlay
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        let headerRow = NSStackView(views: [iconView, titleLabel])
-        headerRow.orientation = .horizontal
-        headerRow.alignment = .centerY
-        headerRow.spacing = 12
-
-        let stack = NSStackView(views: [headerRow, hintsLabel, scrollView, footerLabel])
+        let stack = NSStackView(views: [header, hintsLabel, scrollView, footerLabel])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Theme.cardSpacing
@@ -122,8 +104,6 @@ package final class EditorViewController: NSViewController, NSTextViewDelegate {
         let editorHeight = scrollView.heightAnchor.constraint(equalToConstant: 80)
         // Yields to the card's max height at huge font sizes on small screens (then the editor scrolls).
         editorHeight.priority = NSLayoutConstraint.Priority(999)
-        let iconWidth = iconView.widthAnchor.constraint(equalToConstant: 32)
-        let iconHeight = iconView.heightAnchor.constraint(equalToConstant: 32)
         NSLayoutConstraint.activate([
             card.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             card.centerYAnchor.constraint(equalTo: container.centerYAnchor),
@@ -135,17 +115,13 @@ package final class EditorViewController: NSViewController, NSTextViewDelegate {
             stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: padding),
             stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -padding),
 
-            headerRow.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor),
+            header.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor),
             hintsLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
             footerLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
             editorHeight,
-            iconWidth,
-            iconHeight,
         ])
         self.editorHeight = editorHeight
-        self.iconWidth = iconWidth
-        self.iconHeight = iconHeight
     }
 
     // MARK: - Rendering
@@ -162,8 +138,11 @@ package final class EditorViewController: NSViewController, NSTextViewDelegate {
 
         textView.applyFont(editorFont)
 
-        titleLabel.font = Theme.headerFont(size: headerSize)
-        titleLabel.stringValue = EditorStrings.title(targetName: chrome.targetName)
+        header.render(
+            title: EditorStrings.title(targetName: chrome.targetName),
+            bundleIdentifier: chrome.targetBundleIdentifier,
+            size: headerSize
+        )
 
         let hints = EditorStrings.hints(chrome.hints)
         hintsLabel.font = Theme.headerFont(size: (headerSize * 0.8).rounded())
@@ -172,28 +151,7 @@ package final class EditorViewController: NSViewController, NSTextViewDelegate {
 
         footerLabel.font = Theme.footerFont(size: footerSize)
 
-        updateIcon()
-        let iconEdge = (headerSize * Theme.iconScale).rounded()
-        iconWidth?.constant = iconEdge
-        iconHeight?.constant = iconEdge
-
         updateEditorHeight()
-    }
-
-    private func updateIcon() {
-        let bundleIdentifier = chrome.targetBundleIdentifier
-        if let resolved = iconBundleIdentifier, resolved == bundleIdentifier { return }
-        iconBundleIdentifier = .some(bundleIdentifier)
-        let image = Self.applicationIcon(bundleIdentifier: bundleIdentifier)
-        iconView.image = image
-        iconView.isHidden = image == nil
-    }
-
-    private static func applicationIcon(bundleIdentifier: String?) -> NSImage? {
-        guard let bundleIdentifier,
-              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
-        else { return nil }
-        return NSWorkspace.shared.icon(forFile: url.path)
     }
 
     /// Grows the editor with its content up to `editorMaxHeightFraction` of the screen, then scrolls.

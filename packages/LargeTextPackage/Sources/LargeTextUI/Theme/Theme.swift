@@ -27,6 +27,24 @@ package enum Theme {
     package static func headerFont(size: CGFloat) -> NSFont { .systemFont(ofSize: size, weight: .semibold) }
     package static func footerFont(size: CGFloat) -> NSFont { .systemFont(ofSize: size, weight: .medium) }
 
+    // MARK: Reader
+
+    /// Following card height cap (§4.6); the pinned card uses `editorMaxHeightFraction`.
+    package static let followingMaxHeightFraction: CGFloat = 0.45
+    /// Gap between the following card and the visible frame's top or bottom edge.
+    package static let readerScreenInset: CGFloat = 24
+    /// The pointer must enter the card frame grown by this much before the card changes halves (§4.6).
+    package static let readerHysteresisMargin: CGFloat = 24
+    /// "No text here" is quieter than real text.
+    package static let readerPlaceholderScale: CGFloat = 0.6
+
+    // MARK: Source highlight
+
+    package static let highlightLineWidth: CGFloat = 3
+    package static let highlightCornerRadius: CGFloat = 6
+    /// Gap between the source bounds and the outline, so the outline never covers the text being read.
+    package static let highlightPadding: CGFloat = 4
+
     // MARK: Motion
 
     /// At most 120 ms (§3.8); zero when Reduce Motion is on.

@@ -8,21 +8,28 @@ import os
 package final class StatusItemController: NSObject, NSMenuDelegate {
     /// Shown in the "Open Large Editor (…)" title.
     package var hotkey: KeyCombo
-    /// When set, the menu shows a disabled "Shortcut … unavailable" row.
-    package var hotkeyUnavailable: KeyCombo?
+    /// Shown in the "Read Text Under Pointer (…)" title; `nil` leaves that item out.
+    package var readerHotkey: KeyCombo?
+    /// One disabled "Shortcut … unavailable" row per combo.
+    package var hotkeyUnavailable: [KeyCombo] = []
 
     private let permissions: any PermissionsProviding
     private let onOpenEditor: @MainActor () -> Void
+    private let onReadTextUnderPointer: (@MainActor () -> Void)?
     private var statusItem: NSStatusItem?
 
     package init(
         hotkey: KeyCombo,
+        readerHotkey: KeyCombo? = nil,
         permissions: any PermissionsProviding,
-        onOpenEditor: @escaping @MainActor () -> Void
+        onOpenEditor: @escaping @MainActor () -> Void,
+        onReadTextUnderPointer: (@MainActor () -> Void)? = nil
     ) {
         self.hotkey = hotkey
+        self.readerHotkey = readerHotkey
         self.permissions = permissions
         self.onOpenEditor = onOpenEditor
+        self.onReadTextUnderPointer = onReadTextUnderPointer
         super.init()
     }
 
@@ -64,6 +71,7 @@ package final class StatusItemController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         let items = StatusMenuModel.items(
             hotkey: hotkey,
+            readerHotkey: readerHotkey,
             permissions: permissions.current,
             hotkeyUnavailable: hotkeyUnavailable
         )
@@ -92,6 +100,7 @@ package final class StatusItemController: NSObject, NSMenuDelegate {
     private func selector(for action: StatusMenuAction) -> Selector {
         switch action {
         case .openEditor: #selector(openEditor(_:))
+        case .readTextUnderPointer: #selector(readTextUnderPointer(_:))
         case .grantAccess: #selector(grantAccess(_:))
         case .relaunch: #selector(relaunch(_:))
         case .quit: #selector(quit(_:))
@@ -100,6 +109,10 @@ package final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func openEditor(_ sender: Any?) {
         onOpenEditor()
+    }
+
+    @objc private func readTextUnderPointer(_ sender: Any?) {
+        onReadTextUnderPointer?()
     }
 
     @objc private func grantAccess(_ sender: Any?) {

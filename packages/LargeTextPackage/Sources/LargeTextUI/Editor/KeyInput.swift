@@ -1,7 +1,7 @@
 import LargeTextCore
 
-/// A key press, reduced to what `EditorKeyBindings` needs. Built from an `NSEvent` in the view,
-/// constructed directly in tests.
+/// A key press, reduced to what `EditorKeyBindings` and `ReaderKeyBindings` need. Built from an `NSEvent`
+/// in the view, constructed directly in tests.
 package struct KeyInput: Equatable, Sendable {
     /// Carbon / `NSEvent.keyCode` virtual key code (ANSI positions, layout-independent).
     package var keyCode: UInt16
@@ -14,5 +14,12 @@ package struct KeyInput: Equatable, Sendable {
         self.keyCode = keyCode
         self.charactersIgnoringModifiers = charactersIgnoringModifiers
         self.modifiers = modifiers
+    }
+}
+
+extension KeyInput {
+    /// ⎋, by key code or character, with any modifiers.
+    package var isEscape: Bool {
+        keyCode == ANSIKeyCode.escape || charactersIgnoringModifiers == "\u{1B}"
     }
 }
