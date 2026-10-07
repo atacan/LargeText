@@ -159,3 +159,130 @@ From `Core` logs per session: capture time, focus-return time and pid, paste tim
   clipboard snapshot, so the user's original clipboard is what comes back. Quitting flushes a pending one.
 - **Not yet measured:** clipboard snapshot cost with very large clipboard contents (e.g. a big image);
   watch the `Insertion: pasted … after …` log line during spike 0h.
+
+## Reader
+
+Hands-on checklist for the reader (see `READER_IMPLEMENTATION_PLAN.md` §6 and §7). Default shortcut:
+**⌃⌥⌘R**. Hold it to follow the pointer (the card shows the sentence under it and closes on release); tap
+it to pin the paragraph (⎋ closes, ⌘C copies, ⌘± zooms). It needs the same Accessibility grant as the
+editor.
+
+### Reader logs
+
+```sh
+# Everything, including each read's stage 0 and steps and each hotkey event's timestamps
+log stream --predicate 'subsystem == "LargeText"' --level debug
+
+# One line per read and per probe tick only
+log stream --predicate 'subsystem == "LargeText" AND (category == "Platform" OR category == "Kit")' --level info --style compact
+```
+
+- `Platform`, one `Read in … ms, N AX calls: app=… role=… subrole=… steps=[…] … result=…` line per read
+  (info). `result` is `text(source=…, granularity=…, length=…)`, `hidden`, `nothing`, `ownWindow` (the hit
+  landed on our own card or highlight) or `permissionMissing`; `aborted=cannotComplete` means the app was
+  busy or the 0.1 s timeout expired. At debug level also `Stage 0: …`, `Step … in … ms` and
+  `Hotkey N pressed|released: eventTime=… currentEventTime=… nsEventTime=…`.
+- `Core`: `Reader: idle → following` and the other phase changes, `Reader session …: closing (reason)`.
+- `UI`: `Reader presented (following|pinned)`, `Reader pinned`, `Reader dismissed`, lost key status.
+- `Kit`: the probe's lines (below).
+
+Under the privacy rule (plan §4.10) the reader never logs text from another app, not even as `<private>`:
+only roles, steps, lengths, durations, AX error codes and bundle IDs.
+
+### Reader scenarios and tunables
+
+| Arguments | What you get |
+|---|---|
+| `--scenario reader-stub` | A stub reader that answers by the pointer's global x in 400 pt bands from the left edge of the primary display: a short label ("Open Large Editor"), a long paragraph, nothing ("No text here"), then "Hidden text" from 1 200 pt on. Permissions report granted and the editor only logs its commits. Hotkeys, pointer, key state, panel and HUD are live. |
+| `--reader-stub-delay <ms>` (with any stub) | The stub waits that long before answering, so release-before-first-read and slow reads can be tried by hand. |
+| `--present-reader-on-launch=pinned` | Right after launch, a scripted tap: the pinned card with the short label. Implies `reader-stub`. |
+| `--present-reader-on-launch=following` | A scripted press with no release, over the live pointer and the 400 pt bands: watch placement and hysteresis without holding four keys. The key counts as held and the 30 s cap is off; press ⌃⌥⌘R (a missed release) or the editor shortcut to close it. |
+| `--present-reader-on-launch=nothing` / `hidden` / `long` | A scripted tap: the "No readable text under the pointer" HUD / the pinned "Hidden text" card / a pinned paragraph long enough to scroll. |
+| `--scenario reader-no-accessibility` | Permissions report denied (no system prompt): the reader shortcut shows "Allow Accessibility to read text" and the status menu offers *Grant Access…*. |
+| `--scenario reader-probe` | Everything live, plus the probe that logs the element under the pointer once per second (spikes below). |
+| `--reader-hold-threshold <ms>` | Tap vs. hold threshold (default 300). In memory only; never written to the defaults. |
+| `--following-unit sentence\|line\|paragraph` | The unit while following (default sentence). In memory only. |
+
+The persistent preferences, for when a value has been chosen:
+
+```sh
+defaults write com.actondon.LargeText LargeText.readerHoldThreshold -int 250
+defaults write com.actondon.LargeText LargeText.followingUnit line          # sentence | line | paragraph
+defaults write com.actondon.LargeText LargeText.pinnedUnit paragraph
+defaults delete com.actondon.LargeText LargeText.readerHoldThreshold        # back to the default
+```
+
+### Spikes with `--scenario reader-probe`
+
+Launch with `--scenario reader-probe` and keep `log stream --predicate 'subsystem == "LargeText"' --level debug`
+running. Once per second the probe logs, for the element under the pointer:
+
+```
+Probe in 2.3 ms, 3 AX calls: app=com.apple.Notes pid=… family=native role=AXTextArea subrole=nil lengths=[…] characterCount=18234 hasFrame=true webArea=false
+Probe attributes: AXFrame, AXRole, …
+Probe parameterized: AXBoundsForRange, AXRangeForPosition, AXStringForRange, …
+```
+
+or `Probe: own process under the pointer`, `Probe: no element (AX error …)`, `Probe: Accessibility not
+trusted`. The reader shortcut keeps working, so each spike can also watch the reader's own `Read in …` lines.
+
+- [ ] **R1 Key-up, auto-repeat, key state, timestamps.** Hold ⌃⌥⌘R in Notes for 3 s.
+  - Auto-repeat: count the `Hotkey N pressed` lines. More than one means Carbon repeats, and the reader
+    then closes after the first repeat (`Core`: `following → closing`, a press is a missed release).
+  - Release a modifier first (⌘, then R): is there a `Hotkey N released` line, and does the card close?
+  - Key state: from 400 ms after the press the reader asks `CGEventSource.keyState` on every pointer tick.
+    If a held shortcut closes on its own with `closing (keyReleased)`, the call is gated by Input
+    Monitoring: switch `AppEnvironment.live()` to `SystemKeyStateReader(mode: .modifierFallback)`.
+  - Timestamps: on each `Hotkey` line, `eventTime` should equal the keystroke time, `currentEventTime` is
+    when the callback ran, and `nsEventTime` is the window server's base. For the blocked-main-thread
+    variant add a temporary `usleep(500_000)` at the start of `AppController.readerHotkey(_:)` for the
+    pressed phase and tap quickly: the release line's `currentEventTime` should be about 0.5 s after its
+    `eventTime`, and the gesture should still be a tap (a pinned card, not a closed hold).
+- [ ] **R4 Does the hit test skip our click-through windows?** Hold ⌃⌥⌘R over a paragraph in Notes: the
+  highlight outline lies under the pointer. If the hit test skips it, the `Read in …` lines keep showing
+  `result=text(…)` and the probe keeps logging Notes; if not, they show `result=ownWindow` and
+  `Probe: own process under the pointer`, and the card stops updating. The card itself moves away from the
+  pointer while following; to put the pointer on it, use `--present-reader-on-launch=following` and move
+  quickly onto the card before it flips halves, and note whether clicks there reach the app below. A
+  pinned card accepts the mouse, so the probe reporting our own process over it is expected. Record the
+  result: it decides whether `WindowHitTester` and the four-edge highlight are needed.
+- [ ] **R6 Cost and the timeout.** In Notes, Mail, Xcode, Terminal, Safari and Slack, hover with the probe
+  and hold the reader. From the `Read in … ms, N AX calls` lines record typical and worst durations and
+  call counts per app and per `steps=[…]` (budget: first card within 100 ms of key-down, following updates
+  under 50 ms); from the `Probe in … ms` lines the stage-0 cost and the parameterized-name count. Hung app:
+  `kill -STOP <pid>` a running app, hover over its window and hold the reader: each read should end in
+  about 0.1 s with `aborted=cannotComplete` (and nothing on the card), and the next read in another app
+  should not be delayed by more than about 0.2 s. Then `kill -CONT <pid>`. The plan's comparison with a
+  `value` read of a 1 MB `AXTextArea` isn't in the probe: note the `characterCount` and window timings
+  instead, or measure `value` with a temporary change. These numbers decide whether per-pid back-off and
+  a support cache are needed.
+
+### Reader checklist
+
+- [ ] Hold over text: the card follows, never takes focus from the app (its window stays key, the caret
+      keeps blinking), and clicks pass through the card and the highlight while following.
+- [ ] Release closes; a quick tap pins the paragraph; ⎋, a backdrop click, ⌘Tab and the shortcut again
+      close the pinned card. ⌘C copies, ⌘A selects, ⌘± / ⌘0 zoom and the size is shared with the editor.
+- [ ] Tap on nothing → HUD "No readable text under the pointer"; following over nothing → quiet
+      "No text here" card.
+- [ ] A password field, 1Password, Keychain Access and Passwords → "Hidden text"; nothing about them in the
+      logs apart from the bundle ID and role.
+- [ ] Both gestures over full-screen video and on a second display (the card opens on the pointer's
+      display, in the half away from the pointer, and only changes halves when the pointer reaches it).
+- [ ] The editor shortcut while the reader is following, pinned and fading: the reader closes first and the
+      editor opens exactly once. The reader shortcut while the editor is open does nothing.
+- [ ] Status menu *Read Text Under Pointer (⌃⌥⌘R)* shows the HUD "Point at text and press ⌃⌥⌘R".
+- [ ] Set the reader shortcut equal to the editor's (`defaults write com.actondon.LargeText LargeText.readerHotkey -dict keyCode -int 17 modifiers -int 7`,
+      then relaunch): the reader isn't registered, the HUD says the shortcut is unavailable and the status
+      menu lists it. `defaults delete com.actondon.LargeText LargeText.readerHotkey` restores it.
+- [ ] Revoke Accessibility while following (`tccutil reset Accessibility com.actondon.LargeText`): the
+      card closes and the Accessibility HUD shows once.
+- [ ] Record a screen recording and a screen share (FaceTime or Zoom) with the card following and pinned,
+      and note how both panels appear; this is the evidence for the deferred `readerHideFromScreenSharing`.
+- [ ] **R2 app matrix.** With `--scenario reader-probe`, hover and hold in Safari, Chrome, Arc, Firefox,
+      Mail, Notes, Pages, Preview (PDF), Finder (list and icon view), System Settings, Xcode, Terminal,
+      iTerm2, VS Code, Slack, the menu bar (including app menus), the Dock, Notification Center, an open
+      menu being tracked in another app, Mission Control, Stage Manager strips and the lock screen
+      (expected: nothing). Note per app the `steps=[…]`, `source`, call count and duration, and any hover
+      side effects of holding ⌃⌥⌘ (Xcode ⌘-hover links, ⌥ in Finder, macOS Hover Text). Web content in
+      browsers and Electron apps reads as labels or element text until the text-marker reader (phase 4).

@@ -1,3 +1,4 @@
+import AppKit
 import Carbon.HIToolbox
 import LargeTextCore
 import os
@@ -139,6 +140,15 @@ private func carbonHotKeyEventCallback(
     guard status == noErr else { return status }
     let registrar = Unmanaged<CarbonHotkeyRegistrar>.fromOpaque(userData).takeUnretainedValue()
     return MainActor.assumeIsolated {
-        registrar.handle(hotKeyID: hotKeyID, kind: kind, time: time)
+        // Spike R1: is the event's own time the keystroke time? Compare it with the time the callback runs
+        // and with the window server's time base. All are seconds of system uptime.
+        Logger.platform.debug(
+            """
+            Hotkey \(hotKeyID.id) \(kind == UInt32(kEventHotKeyPressed) ? "pressed" : "released", privacy: .public): \
+            eventTime=\(time, format: .fixed(precision: 3)) currentEventTime=\(GetCurrentEventTime(), format: .fixed(precision: 3)) \
+            nsEventTime=\(NSApp?.currentEvent?.timestamp ?? -1, format: .fixed(precision: 3))
+            """
+        )
+        return registrar.handle(hotKeyID: hotKeyID, kind: kind, time: time)
     }
 }
