@@ -1,4 +1,4 @@
-# LargeText Reader — Technical Implementation Plan (draft 3)
+# LargeText Reader — Technical Implementation Plan (draft 4)
 
 > **Feature: Reader.** Point at small text anywhere on screen (a label, a menu item, a tweet, a line in a
 > document) and press a shortcut. The text under the pointer appears in a large, read-only card, at the
@@ -11,7 +11,7 @@
 > plumbing, the panel and its level and Spaces behaviour, the theme, the font-size policy, the HUD and the
 > status item.
 >
-> Draft 2 includes an independent review. Draft 3 includes that reviewer's follow-up check. See §11.
+> Draft 2 includes an independent review. Draft 3 includes that reviewer's follow-up check, and draft 4 a fresh reviewer's final check. See §11.
 
 ---
 
@@ -45,7 +45,7 @@ hold ⌘ and hover, and a small bubble shows the text under the pointer. Its lim
 | Global shortcut, press **and** release | Yes | Carbon `RegisterEventHotKey` with `kEventHotKeyPressed` and `kEventHotKeyReleased` on one handler; route by `GetEventKind(event)` | None |
 | Pointer location | Yes | `NSEvent.mouseLocation` (AppKit, bottom-left) and `CGEvent(source: nil)?.location` (global, top-left), sampled together by Platform | None |
 | Pointer movement while following | Yes | A 60 Hz timer polling the location only while following. This also catches drags, which a `.mouseMoved` monitor misses | None |
-| AX element under the pointer | Yes | `AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), x, y, &el)` follows the window server's mouse routing, so click-through windows are skipped. `AXUIElementGetPid` then gives the owner | Accessibility |
+| AX element under the pointer | Yes | `AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), x, y, &el)` is *expected* to follow the window server's mouse routing and skip click-through windows (R4 confirms). `AXUIElementGetPid` then gives the owner | Accessibility |
 | Fallback when the system-wide hit lands on us or fails | Yes | `CGWindowListCopyWindowInfo(.optionOnScreenOnly, …)` provides pid candidates, front to back, then an app-scoped `AXUIElementCopyElementAtPosition` per candidate. Window *names* need Screen Recording; we never read them | None / Accessibility |
 | Text of a label, button or static text | Yes | One batched `AXUIElementCopyMultipleAttributeValues` read of role, subrole, value, title, description, help, placeholder, number of characters, position and size | Accessibility |
 | Sentence, line or paragraph under the pointer in a native text view | Yes (AppKit/TextKit and many others) | Parameterized attributes `kAXRangeForPositionParameterizedAttribute`, `kAXStringForRangeParameterizedAttribute` (a **window** around the index), `kAXBoundsForRangeParameterizedAttribute`, plus `kAXNumberOfCharactersAttribute` | Accessibility |
@@ -70,7 +70,7 @@ registration reports `hotkeyUnavailable`.
             press                         release < holdThreshold (300 ms)
   idle ───────────────▶ following ─────────────────────────────────────▶ pinned
    ▲                       │ release ≥ holdThreshold                     │
-   │                       │ press (= missed release)                    │ press / ⎋ / backdrop click /
+   │                       │ press (= missed release, per R1)            │ press / ⎋ / backdrop click /
    │                       │ maxFollowDuration (30 s)                    │ resign key / editor shortcut
    └──────────────────── closing ◀───────────────────────────────────────┘
 ```
@@ -94,8 +94,15 @@ A time-interval filter is not used, because it can't tell a repeat from a delibe
 
 **Stuck-key protection:**
 - While following, a 50 ms safety poll asks `CGEventSource.keyState(.combinedSessionState, key:)` whether
-  the key is up, and synthesizes a release if so. This depends on spike R1 confirming that the call works
-  without Input Monitoring; if it is gated, it is dropped.
+  the key is up. This depends on spike R1 confirming that the call works without Input Monitoring; if it
+  is gated, the poll is dropped.
+- **The poll never decides tap vs. hold.** It starts only once `holdThreshold + 100 ms` has passed since
+  the press. Its synthetic release can therefore only close a session that is already a hold.
+  - The poll's own timestamp is late by up to one tick, so a tap released at 280 ms could otherwise be
+    seen at 300 ms or later and counted as a hold.
+  - Before that point, only Carbon's real release, with the event's own timestamp, classifies the
+    gesture.
+  - A real Carbon release arriving after a poll-created close is ignored.
 - `maxFollowDuration` (30 s) is the last resort.
 
 **Press while pinned:** closes the reader on key-down. The matching release is ignored.
@@ -260,8 +267,13 @@ offsets. This works the same for Terminal scrollback, Xcode files and long mail 
   pinned unit (paragraph) is a pure re-segmentation in Core. The only extra AX call is one
   `BoundsForRange` for the new highlight, which is optional.
 - **Web:** marker ranges can't be re-segmented locally. On pin, the coordinator issues **one** extra read
-  for the paragraph at the frozen point (`read(at:unit: .paragraph)`, same `seq` rules). Until it
-  returns, the sentence stays displayed. If it fails, the sentence stays.
+  for the paragraph at the frozen point.
+  - The call is `read(at:unit: .paragraph, pid: frozenPid)`. Passing the pid of the last displayed result
+    makes the hit test go straight to that app. By then the panel is full-screen and clickable, so a
+    system-wide hit test would land on our own backdrop.
+  - The read is tagged `(sessionID, pinSeq)`. It is the **one result accepted while *pinned***, and only
+    if `pinSeq` matches. Every other in-flight read is still dropped at pin (§4.4).
+  - Until it returns, the sentence stays displayed. If it fails, the sentence stays.
 
   Fetching both units on every following read was rejected: it adds two calls to every read for a
   benefit seen only at pin time.
@@ -302,14 +314,23 @@ dedicated thread, not on the cooperative pool and not on the main thread.
 - The 0.1 s AX messaging timeout is process-wide. Today it is set lazily, and only by the focus capturer.
   If the reader ran first, the default timeout (about 6 s) would apply, and one hung app would stall the
   serial queue for seconds.
-- So the timeout moves to **`AppController.start()`**: it is set once at launch through
-  `AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.1)`, and again when trust is first
-  granted.
+- So the timeout gets one home: a Platform function, `AXConfiguration.applyMessagingTimeout()`, which
+  calls `AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.1)`.
+  - `AppController.start()` calls it at launch, and again when trust is first granted.
+  - `AXAppPreparer` does **not** set it.
 - The lazy call in the focus capturer is removed.
 
 **Worst case:** a read can't be cancelled in the middle of an AX call. After release, a read still
 running against a slow app can delay the next session's first read by about 0.1–0.2 s. This is bounded
 by the timeout, abort-on-`cannotComplete` and the back-off, and R6 checks it.
+
+**Cancellation and the 200 ms retry:**
+- The coordinator **cancels** the read `Task` when the session ends or the reader pins.
+- The reader checks `Task.isCancelled` before each stage and after the 200 ms retry sleep (§4.11), so a
+  cancelled read gives up between AX calls.
+- The retry sleep suspends the actor, so other reads may run in between. That is fine: each result is
+  still checked against its `seq`.
+- With the retry, the worst case for a first read is about 0.4 s.
 
 **The coordinator issues reads:**
 - **One read in flight.** Pointer ticks while a read runs only replace `pendingPoint`. When the read
@@ -364,7 +385,7 @@ Spike R6 checks these against real apps before the port signatures are frozen (M
 
 - **Inputs:** the screen's `visibleFrame`, the pointer, the source frame, the card's preferred size and
   the **previous card frame**.
-- The screen comes from the existing `ScreenResolver.resolve(targetFrame: nil, mouseLocation:)`; no new
+- The screen comes from the existing `ScreenResolver.resolve(targetFrame: nil, mouseLocation:, screens:)`; no new
   overload is needed.
 - Width is `Theme.cardWidthFraction`. Height fits the text, capped at `Theme.followingMaxHeightFraction`
   (45%).
@@ -382,9 +403,14 @@ Spike R6 checks these against real apps before the port signatures are frozen (M
 
 ### 4.7 Source highlight
 
-`HighlightPanel` is a borderless, click-through, non-key panel at the same level. It draws a 3 pt rounded outline in `Theme.hintColor` around the bounds of the unit
-or element being read. It is optional: if an app reports bad bounds, the outline is skipped for that
-read.
+`HighlightPanel` is a borderless, click-through, non-key panel at the same level. It draws a 3 pt rounded
+outline in `Theme.hintColor` around the bounds of the unit or element being read. It is optional: if an
+app reports bad bounds, the outline is skipped for that read.
+
+The highlight sits **under the pointer by design**, so it is part of spike R4. If the system-wide hit
+test does *not* skip click-through windows, the highlight is drawn as **four thin edge windows** (top,
+bottom, left, right). These never cover the point being read, so the system-wide hit test stays the
+normal path.
 
 ### 4.8 Interplay with the editor (no new type)
 
@@ -464,13 +490,13 @@ Sources/LargeTextCore/
     HotkeyEvent.swift              HotkeyPhase, HotkeyEvent(phase, at)
     PointerSample.swift            global (top-left) + appKit points
     ReadResult.swift               .text(ReadText) / .hidden / .nothing / .permissionMissing;
-                                   ReadText(text, unit, app, sourceFrame, window/markerUnits for re-segmenting)
+                                   ReadText(text, unit, app, sourceFrame, TextWindow for native re-segmentation; markerUnits for display only)
     ReadCandidates.swift           §4.3, plus TextSpan, TextWindow, ReadStep
     ReadUnit.swift                 .selection/.sentence/.line/.paragraph/.element/.label/.ocr
     ReaderChrome.swift             fontSize, mode (.following/.pinned), appName, bundleID, sourceFrame, pointer
     ReaderIntent.swift             sessionID-tagged: .close(ReaderCloseReason), .zoom(ZoomStep)
   Ports/
-    TextReading.swift              Sendable, not MainActor: read(at: PointerSample, unit:) async -> ReadResult
+    TextReading.swift              Sendable, not MainActor: read(at: PointerSample, unit:, pid: Int32? = nil) async -> ReadResult
     PointerTracking.swift          @MainActor: current: PointerSample; startTicking(_:) -> token (60 Hz while following)
     ReaderPresenting.swift         @MainActor: present(sessionID:content:chrome:intents:), update(...), pin(), dismiss() async
     HotkeyRegistering.swift        (changed) HotkeyEvent handler + press-only convenience
@@ -510,7 +536,8 @@ Sources/LargeTextPlatform/
     SystemPointerTracker.swift     PointerSample from CGEvent + NSEvent; 60 Hz Timer in RunLoop `.common` modes
                                    (keeps firing while a menu is open or a drag is tracked), only while ticking
   Focus/
-    AXAppPreparer.swift            messaging timeout + scoped AXManualAccessibility (from AccessibilityFocusCapturer)
+    AXAppPreparer.swift            scoped AXManualAccessibility + 200 ms retry hint (from AccessibilityFocusCapturer)
+    AXConfiguration.swift          applyMessagingTimeout(): the single home of the process-wide 0.1 s timeout
     AXGeometry.swift               (changed) + rect conversion for many displays; display-local rect for OCR
   Hotkey/
     CarbonHotkeyRegistrar.swift    (changed) pressed+released, GetEventKind routing, timestamp in callback
@@ -583,7 +610,7 @@ The existing pattern stays: Swift Testing, pure functions tested directly, coord
 
 | Suite | Covers |
 |---|---|
-| `ReaderGestureTests` | tap, hold and the threshold edge, all from **event timestamps**; press while following = missed release; press while pinned closes and the next release is ignored; a lone release is ignored; max follow duration |
+| `ReaderGestureTests` | tap, hold and the threshold edge, all from **event timestamps**; press while following handled per the R1 outcome (missed release, or ignored); a poll-created release before `holdThreshold + 100 ms` is impossible (a tap released at 280 ms is never a hold); press while pinned closes and the next release is ignored; a lone release is ignored; max follow duration |
 | `ReadingSessionCoordinatorTests` | **Races**, using `StubTextReader` with delays: release (tap) before read #1 finishes → presented pinned; release (hold) before read #1 → nothing presented; a move while a read runs → one follow-up read with the latest point; pin while a read runs → frozen on the last displayed result; a stale `seq` is dropped; a result after close is dropped. **Also:** deduplication, zoom persisting the shared font size, stale-session intents ignored, `.nothing` on tap → HUD, missing permission → HUD, `isIdle` |
 | `ReadPlanTests` | step order per role and attribute combination; `.done` early for short static text |
 | `ReadTextChooserTests` | the §3.3 ladder; secure **subrole**; hidden found during a walk; denylisted app; web selection vs. native selection; a long `value` is not used as element text; label order |
@@ -614,8 +641,8 @@ The existing pattern stays: Swift Testing, pure functions tested directly, coord
 
 | # | Question | Decides | When |
 |---|---|---|---|
-| R1 | Is `kEventHotKeyReleased` reliable when a modifier is released first? Does Carbon send auto-repeat presses? Does `CGEventSource.keyState(.combinedSessionState, …)` return real values **without Input Monitoring**? | Whether the safety poll exists; how auto-repeat is filtered | **M0** |
-| R4 | Does the system-wide AX hit test skip an `ignoresMouseEvents` panel? | How often the `WindowHitTester` fallback runs | **M0** |
+| R1 | Is `kEventHotKeyReleased` reliable when a modifier is released first? Does Carbon send auto-repeat presses? Does `CGEventSource.keyState(.combinedSessionState, …)` return real values **without Input Monitoring**? Is `GetEventTime(event)` the real keystroke time? Test: block the main thread for about 500 ms, tap, and compare it with `GetCurrentEventTime()` inside the callback. | Whether the safety poll exists; how auto-repeat is filtered; whether the timestamps can be trusted (if not, document the limitation) | **M0** |
+| R4 | Does the system-wide AX hit test skip an `ignoresMouseEvents` panel, both the card **and a highlight outline lying under the pointer**? | How often the `WindowHitTester` fallback runs; single-panel vs. four-edge highlight | **M0** |
 | R6 | Cost of a stage-0 read and of a text-window read on a dedicated serial executor; behaviour with a hung app; does the 0.1 s timeout hold? | Budgets, back-off values; confirms the threading decision before the ports freeze | **M0** |
 | R2 | Matrix: Safari, Chrome, Arc, Firefox, Mail, Notes, Pages, Preview (PDF), Finder (list/icon), System Settings, Xcode, Terminal, iTerm2, VS Code, Slack, menu bar (including app menus), Dock, Notification Center, **open menus being tracked in another app, Mission Control, Stage Manager strips, the lock/login screen** (should be nothing). Which ladder step, how many calls, how long? | Default units; web scope in v1 | M2 |
 | R3 | Chromium browsers: are hit testing and text markers available, with or without `AXManualAccessibility`, and never `AXEnhancedUserInterface`? | Chromium support | M4 |
@@ -666,7 +693,7 @@ The existing pattern stays: Swift Testing, pure functions tested directly, coord
 | Wrong window hit (click-through overlays from other apps) | System-wide hit test first (follows mouse routing); `CGWindowList` only as a capped fallback |
 | Poor AX text in some apps (canvas, games, some Electron) | Label and walk ladder; OCR in phase 2; R2 matrix from the probe logs |
 | Card covers the pointed-at content or jumps around | Opposite-half placement with hysteresis; click-through; no jump on pin; highlight outline |
-| Carbon release lost or key appears stuck | Press-while-following = missed release; `keyState` poll if R1 allows; 30 s cap |
+| Carbon release lost or key appears stuck | Per R1: press-while-following = missed release, or presses ignored; `keyState` poll after the hold threshold if R1 allows; 30 s cap |
 | Secrets shown huge to the room or in a screen share | Secure subrole check on every visited element; password-manager denylist; content never logged; OCR images kept in memory only; opt-in, best-effort `sharingType = .none` |
 | Turning on other apps' AX trees costs them CPU and memory | Scoped to the pid being read, only after an empty result; logged |
 | Undocumented web text markers change | Isolated in one file; falls back to element text |
@@ -764,3 +791,23 @@ The follow-up check found 15 of 20 findings addressed and 5 partly addressed, pl
 - **N11, auto-repeat filter.** No interval filter: R1 decides between "press = missed release" and
   "ignore all presses while following" (§3.1).
 - **Finding 12, part 2: empty tree right after enabling.** One retry after 200 ms (§4.11).
+
+### Draft 3 → draft 4 (final check by a fresh reviewer)
+
+The final check marked N1–N11 and findings 12–14 as handled and judged the plan **ready for M0**. It
+raised six small follow-ups, now fixed:
+
+1. **The `keyState` poll could turn a tap into a hold.** The poll now starts only after
+   `holdThreshold + 100 ms`, and only Carbon's own release decides tap vs. hold. Covered by a test
+   (§3.1, §6).
+2. **The highlight lies under the pointer.** It is now part of R4, with a four-edge-window fallback. §2
+   no longer states R4's open question as fact (§2, §4.7, §7).
+3. **The web paragraph read on pin would be dropped by the stale-read rule.** It is now tagged
+   `pinSeq`, accepted while pinned, and sent straight to the frozen pid. The `markerUnits` wording in
+   §5.1 is corrected (§4.3, §5.1).
+4. **`GetEventTime` may itself be late.** A blocked-main-thread comparison test is added to R1 (§7).
+5. **The timeout had two homes.** The single home is now `AXConfiguration.applyMessagingTimeout()`,
+   called from `AppController` (§4.4, §5.2).
+6. **Leftovers.** "Per R1" wording in the diagram, tests and risks; read cancellation and
+   `Task.isCancelled` around the 200 ms retry, with the worst case updated to about 0.4 s; the full
+   `ScreenResolver.resolve` signature.
