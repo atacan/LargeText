@@ -1,6 +1,7 @@
 import ApplicationServices
 import CoreFoundation
 import CoreGraphics
+import Foundation
 
 /// Unwraps the array returned by `AXUIElementCopyMultipleAttributeValues`.
 ///
@@ -31,6 +32,10 @@ package struct AXBatchResult {
 
     package func string(for attribute: String) -> String? {
         value(for: attribute) as? String
+    }
+
+    package func int(for attribute: String) -> Int? {
+        (value(for: attribute) as? NSNumber)?.intValue
     }
 
     package func point(for attribute: String) -> CGPoint? {

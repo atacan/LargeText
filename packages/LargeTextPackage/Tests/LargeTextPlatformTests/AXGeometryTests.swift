@@ -1,4 +1,5 @@
 import CoreGraphics
+import LargeTextCore
 import Testing
 @testable import LargeTextPlatform
 
@@ -54,5 +55,69 @@ import Testing
             primaryScreenFrame: oddPrimary
         )
         #expect(rect == CGRect(x: 10, y: 780, width: 100, height: 40))
+    }
+
+    // MARK: - Global ↔ AppKit for several displays
+
+    /// Taller display left of the primary, reaching below its bottom: AppKit frame (-1920, -100, 1920, 1200).
+    @Test func pointOnTallerDisplayLeftOfPrimary() {
+        let left = CGRect(x: -1920, y: -100, width: 1920, height: 1200)
+        let appKit = CGPoint(x: -1000, y: 1000)
+        #expect(left.contains(appKit))
+
+        let global = AXGeometry.globalPoint(appKitPoint: appKit, primaryScreenFrame: primary)
+
+        #expect(global == CGPoint(x: -1000, y: -100))
+        #expect(AXGeometry.appKitPoint(globalPoint: global, primaryScreenFrame: primary) == appKit)
+    }
+
+    /// Larger display above the primary: AppKit frame (0, 900, 2560, 1440), so its global y is negative.
+    @Test func pointOnDisplayAbovePrimary() {
+        let appKit = CGPoint(x: 100, y: 2000)
+
+        let global = AXGeometry.globalPoint(appKitPoint: appKit, primaryScreenFrame: primary)
+
+        #expect(global == CGPoint(x: 100, y: -1100))
+        #expect(AXGeometry.appKitPoint(globalPoint: global, primaryScreenFrame: primary) == appKit)
+    }
+
+    @Test func globalRectOnDisplayLeftOfPrimaryConvertsToAppKit() {
+        let globalRect = CGRect(x: -1500, y: 850, width: 400, height: 20)
+
+        let appKit = AXGeometry.appKitRect(globalRect: globalRect, primaryScreenFrame: primary)
+
+        #expect(appKit == CGRect(x: -1500, y: 30, width: 400, height: 20))
+        #expect(AXGeometry.globalRect(appKitRect: appKit, primaryScreenFrame: primary) == globalRect)
+    }
+
+    @Test func rectRoundTripsOnDisplayAbovePrimary() {
+        let appKit = CGRect(x: 200, y: 1800, width: 300, height: 40)
+
+        let global = AXGeometry.globalRect(appKitRect: appKit, primaryScreenFrame: primary)
+
+        #expect(global == CGRect(x: 200, y: -940, width: 300, height: 40))
+        #expect(AXGeometry.appKitRect(globalRect: global, primaryScreenFrame: primary) == appKit)
+    }
+
+    // MARK: - PointerSample
+
+    @Test func pointerSampleDerivesGlobalWithPrimaryFlip() {
+        let sample = AXGeometry.pointerSample(appKit: CGPoint(x: 100, y: 800), primaryScreenFrame: primary)
+
+        #expect(sample == PointerSample(appKit: CGPoint(x: 100, y: 800), global: CGPoint(x: 100, y: 100)))
+    }
+
+    @Test func pointerSampleAtPrimaryCorners() {
+        let bottomLeft = AXGeometry.pointerSample(appKit: .zero, primaryScreenFrame: primary)
+        let topLeft = AXGeometry.pointerSample(appKit: CGPoint(x: 0, y: 900), primaryScreenFrame: primary)
+
+        #expect(bottomLeft.global == CGPoint(x: 0, y: 900))
+        #expect(topLeft.global == .zero)
+    }
+
+    @Test func pointerSampleOnSecondaryDisplayBelowPrimary() {
+        let sample = AXGeometry.pointerSample(appKit: CGPoint(x: 50, y: -500), primaryScreenFrame: primary)
+
+        #expect(sample.global == CGPoint(x: 50, y: 1400))
     }
 }
