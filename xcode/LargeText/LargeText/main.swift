@@ -1,0 +1,3 @@
+import LargeTextKit
+
+LargeTextApplication.run()

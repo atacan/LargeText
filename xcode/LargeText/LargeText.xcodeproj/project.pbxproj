@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		7997CFB030762A9E00615175 /* LargeTextPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 7997CFAF30762A9E00615175 /* LargeTextPackage */; };
+		7997CFB030762A9E00615175 /* LargeTextKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7997CFAF30762A9E00615175 /* LargeTextKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -55,7 +55,7 @@
 		79E9D74230762A650082D702 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
-				7997CFB030762A9E00615175 /* LargeTextPackage in Frameworks */,
+				7997CFB030762A9E00615175 /* LargeTextKit in Frameworks */,
 			);
 		};
 		79E9D75230762A660082D702 /* Frameworks */ = {
@@ -109,7 +109,7 @@
 			);
 			name = LargeText;
 			packageProductDependencies = (
-				7997CFAF30762A9E00615175 /* LargeTextPackage */,
+				7997CFAF30762A9E00615175 /* LargeTextKit */,
 			);
 			productName = LargeText;
 			productReference = 79E9D74530762A650082D702 /* LargeText.app */;
@@ -383,12 +383,10 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = UFMN5LMXG2;
-				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				INFOPLIST_KEY_NSViewGestureRecognizerIsExclusive = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -404,7 +402,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
@@ -417,12 +415,10 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = UFMN5LMXG2;
-				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				INFOPLIST_KEY_NSViewGestureRecognizerIsExclusive = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -438,7 +434,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
@@ -458,7 +454,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LargeText.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/LargeText";
 			};
 			name = Debug;
@@ -479,7 +475,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LargeText.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/LargeText";
 			};
 			name = Release;
@@ -498,7 +494,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TEST_TARGET_NAME = LargeText;
 			};
 			name = Debug;
@@ -517,7 +513,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TEST_TARGET_NAME = LargeText;
 			};
 			name = Release;
@@ -567,9 +563,9 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		7997CFAF30762A9E00615175 /* LargeTextPackage */ = {
+		7997CFAF30762A9E00615175 /* LargeTextKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = LargeTextPackage;
+			productName = LargeTextKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
