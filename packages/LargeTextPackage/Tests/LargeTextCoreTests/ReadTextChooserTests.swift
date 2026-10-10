@@ -177,6 +177,138 @@ struct ReadTextChooserTests {
         #expect(text.source == .label)
     }
 
+    @Test(arguments: ["AXStaticText", "AXTextField", "AXTextArea", "AXComboBox", "AXCell"])
+    func textValueRolesKeepValueFirst(role: String) throws {
+        let result = Self.choose(Self.candidates(role: role) {
+            $0.value = "Hello"
+            $0.description = "Greeting"
+        })
+
+        let text = try #require(Self.text(result))
+        #expect(text.text == "Hello")
+        #expect(text.source == .element)
+    }
+
+    @Test func nilRoleKeepsValueFirst() throws {
+        let result = Self.choose(Self.candidates(role: nil) {
+            $0.value = "Hello"
+            $0.description = "Greeting"
+        })
+
+        let text = try #require(Self.text(result))
+        #expect(text.text == "Hello")
+        #expect(text.source == .element)
+    }
+
+    // MARK: - 4–5. Control name and value
+
+    @Test(arguments: ["Selected", "Multiple languages"])
+    func sonioxButtonShowsItsNameBeforeItsValue(value: String) throws {
+        let result = Self.choose(Self.candidates(role: "AXButton") {
+            $0.description = "Soniox"
+            $0.value = value
+        })
+
+        let text = try #require(Self.text(result))
+        #expect(text.text == "Soniox\n\(value)")
+        #expect(text.source == .label)
+        #expect(text.sourceFrame == Self.elementFrame)
+    }
+
+    @Test(arguments: [nil, "", " \n "] as [String?])
+    func buttonWithOnlyATitleShowsItsName(value: String?) throws {
+        let result = Self.choose(Self.candidates(role: "AXButton") {
+            $0.title = "OK"
+            $0.value = value
+        })
+
+        let text = try #require(Self.text(result))
+        #expect(text.text == "OK")
+        #expect(text.source == .label)
+    }
+
+    @Test func buttonValueMatchingItsNameIsShownOnce() throws {
+        let result = Self.choose(Self.candidates(role: "AXButton") {
+            $0.title = "  OK \n"
+            $0.value = "\n ok  "
+        })
+
+        let text = try #require(Self.text(result))
+        #expect(text.text == "OK")
+        #expect(text.source == .label)
+    }
+
+    @Test func unnamedPopUpButtonShowsItsValue() throws {
+        let result = Self.choose(Self.candidates(role: "AXPopUpButton") { $0.value = "English" })
+
+        let text = try #require(Self.text(result))
+        #expect(text.text == "English")
+        #expect(text.source == .element)
+        #expect(text.sourceFrame == Self.elementFrame)
+    }
+
+    @Test func buttonHelpIsNotANameWhenThereIsAValue() throws {
+        let result = Self.choose(Self.candidates(role: "AXButton") {
+            $0.help = "Choose a language"
+            $0.placeholder = "Language"
+            $0.value = "English"
+        })
+
+        let text = try #require(Self.text(result))
+        #expect(text.text == "English")
+        #expect(text.source == .element)
+    }
+
+    @Test func buttonWithABlankTitleUsesItsDescriptionBeforeItsValue() throws {
+        let result = Self.choose(Self.candidates(role: "AXButton") {
+            $0.title = " \n "
+            $0.description = "Soniox"
+            $0.value = "Selected"
+        })
+
+        let text = try #require(Self.text(result))
+        #expect(text.text == "Soniox\nSelected")
+        #expect(text.source == .label)
+    }
+
+    @Test func longControlValueIsIgnored() throws {
+        let result = Self.choose(Self.candidates(role: "AXButton") {
+            $0.title = "Notes"
+            $0.value = String(repeating: "a", count: ReadPolicy.standard.elementTextLimit + 1)
+        })
+
+        let text = try #require(Self.text(result))
+        #expect(text.text == "Notes")
+        #expect(text.source == .label)
+    }
+
+    @Test func controlValueAtTheLimitIsIncluded() throws {
+        let value = String(repeating: "a", count: ReadPolicy.standard.elementTextLimit)
+        let result = Self.choose(Self.candidates(role: "AXButton") {
+            $0.title = "Notes"
+            $0.value = value
+        })
+
+        let text = try #require(Self.text(result))
+        #expect(text.text == "Notes\n\(value)")
+        #expect(text.source == .label)
+    }
+
+    @Test(arguments: ReadPlan.nonTextValueRoles.sorted())
+    func nonTextValuesAreNeverShown(role: String) throws {
+        let candidates = Self.candidates(role: role) {
+            $0.title = "Name"
+            $0.value = "1"
+        }
+        let text = try #require(Self.text(Self.choose(candidates)))
+        #expect(text.text == "Name")
+        #expect(text.source == .label)
+
+        var unnamed = candidates
+        unnamed.title = nil
+        #expect(Self.choose(unnamed) == .nothing)
+    }
+
     // MARK: - 5. Label
 
     @Test func labelOrderIsTitleDescriptionHelpPlaceholder() throws {
@@ -228,5 +360,24 @@ struct ReadTextChooserTests {
         })))
         #expect(capped.text.count == ReadPolicy.standard.maxCharacters)
         #expect(capped.text.hasSuffix("…"))
+    }
+
+    @Test func combinedControlTextIsVerbatimInsideAndCappedWithAnEllipsis() throws {
+        let candidates = Self.candidates(role: "AXButton") {
+            $0.title = " \nModel\n  name \n"
+            $0.value = " \nFirst\n\n  second\ttab \n"
+        }
+        let text = try #require(Self.text(Self.choose(candidates)))
+        #expect(text.text == "Model\n  name\nFirst\n\n  second\ttab")
+        #expect(text.source == .label)
+        #expect(text.sourceFrame == Self.elementFrame)
+
+        var policy = ReadPolicy.standard
+        policy.maxCharacters = 25
+        let capped = try #require(Self.text(ReadTextChooser.choose(
+            from: candidates, granularity: .sentence, policy: policy
+        )))
+        #expect(capped.text == String(text.text.prefix(24)) + "…")
+        #expect(capped.text.count == policy.maxCharacters)
     }
 }

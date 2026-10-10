@@ -2,12 +2,16 @@ import Foundation
 
 /// Picks the text to show from the final `ReadCandidates`: the §3.3 ladder. Pure.
 package enum ReadTextChooser {
+    /// Roles whose `value` is the text itself, rather than a control's state. A `nil` role also uses value first.
+    package static let textValueRoles: Set<String> = ["AXStaticText", "AXTextField", "AXTextArea", "AXComboBox", "AXCell"]
+
     /// The ladder:
     /// 1. hidden content (a secure element, a secure element met in a walk, a denylisted app);
     /// 2. the selection under the pointer;
     /// 3. the unit at the pointer (web text markers, or a native text window);
-    /// 4. the whole element text, when it is at most `policy.elementTextLimit` long;
-    /// 5. a label: title, then description, then help, then placeholder;
+    /// 4. a short value for text-value roles; for controls, the name (title, then description) and a distinct
+    ///    short value on the next line, or whichever exists;
+    /// 5. a fallback label: title, then description, then help, then placeholder;
     /// 6. what the bounded walk found: child texts, then an ancestor's label;
     /// 7. nothing.
     ///
@@ -49,8 +53,27 @@ package enum ReadTextChooser {
            let result = text(unit.text, source: .unit, frame: nil, window: window) {
             return result
         }
-        if let value = candidates.value, value.utf16.count <= policy.elementTextLimit,
-           let result = text(value, source: .element, frame: nil) {
+        let value = candidates.value.flatMap { raw -> String? in
+            guard raw.utf16.count <= policy.elementTextLimit,
+                  !(candidates.role.map(ReadPlan.nonTextValueRoles.contains) ?? false) else { return nil }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if !(candidates.role.map(textValueRoles.contains) ?? true) {
+            let name = [candidates.title, candidates.description]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty }
+            if let name {
+                let combined: String
+                if let value, name.caseInsensitiveCompare(value) != .orderedSame {
+                    combined = name + "\n" + value
+                } else {
+                    combined = name
+                }
+                if let result = text(combined, source: .label, frame: nil) { return result }
+            }
+        }
+        if let result = text(value, source: .element, frame: nil) {
             return result
         }
         for label in [candidates.title, candidates.description, candidates.help, candidates.placeholder] {

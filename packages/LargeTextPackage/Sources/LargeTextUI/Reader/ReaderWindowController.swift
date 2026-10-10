@@ -225,10 +225,12 @@ package final class ReaderWindowController: ReaderPresenting {
         _ panel: OverlayPanel,
         _ reader: ReaderViewController
     ) {
+        // Card first: resizing the panel lays the window out, and a still-unsized (`.zero`) card can't
+        // hold the stack's padding constraints.
+        reader.setCardFrame(cardFrame.offsetBy(dx: -panelFrame.minX, dy: -panelFrame.minY))
         if panel.frame != panelFrame {
             panel.setFrame(panelFrame, display: false)
         }
-        reader.setCardFrame(cardFrame.offsetBy(dx: -panelFrame.minX, dy: -panelFrame.minY))
         panel.displayIfNeeded()
     }
 

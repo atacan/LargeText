@@ -36,6 +36,23 @@ struct ReadPlanTests {
         #expect(steps == [.value])
     }
 
+    @Test func buttonWithADescriptionFetchesItsValueThenStops() {
+        var button = Self.element("AXButton")
+        button.description = "Soniox"
+
+        #expect(Self.steps(from: button) == [.value])
+        #expect(Self.steps(from: button) { step, candidates in
+            if step == .value { candidates.value = "Selected" }
+        } == [.value])
+    }
+
+    @Test func checkBoxWithATitleNeverFetchesItsValue() {
+        var checkBox = Self.element("AXCheckBox")
+        checkBox.title = "Enabled"
+
+        #expect(Self.steps(from: checkBox) == [])
+    }
+
     @Test func hugeTextAreaNeverFetchesItsValue() {
         #expect(Self.steps(from: Self.element("AXTextArea", count: 1_000_000)) == [.selection, .textWindow])
     }

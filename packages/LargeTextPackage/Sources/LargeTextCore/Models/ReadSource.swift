@@ -8,7 +8,7 @@ package enum ReadSource: Equatable, Sendable {
     case unit
     /// The whole (short) element text.
     case element
-    /// Title, description, help or placeholder.
+    /// Title or description (with a control's distinct short value), or fallback help or placeholder.
     case label
     /// Found by the bounded child/ancestor walk.
     case walk

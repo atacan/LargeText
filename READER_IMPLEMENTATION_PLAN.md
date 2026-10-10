@@ -180,12 +180,23 @@ Core asks for (§4.3).
    - web: `AXSelectedTextMarkerRange` on the `AXWebArea` plus `AXBoundsForTextMarkerRange`.
 3. **Unit at the pointer:** a sentence (following) or a paragraph (pinned), taken from a text window
    around the pointer index (native) or from text markers (web).
-4. **Whole element text, when short:** `value` ≤ `elementTextLimit` (500 characters). Examples are
-   static text, a cell, or a text field's value. `value` is fetched only by the `.value` step, which
-   `ReadPlan` emits only when `characterCount` is known and ≤ `elementTextLimit`, or when the role isn't a
-   text area or text field (§4.3).
-5. **Label:** title, then description, then help, then placeholder. This covers buttons, menu items,
-   toolbar icons, tabs and Dock items.
+4. **Element text or control name and value:** a non-blank `value` is usable only when it is
+   ≤ `elementTextLimit` (500 characters).
+   - **Text-value roles** (`AXStaticText`, `AXTextField`, `AXTextArea`, `AXComboBox`, `AXCell`, and a
+     missing role): show the short value first, then fall back to the label in rung 5.
+   - **All other roles:** the name is the first non-blank title, then description. If a name and a
+     short value exist and differ after trimming and case-insensitive comparison, show `name + "\n" + value`.
+     If only the name exists or the value equals it, show the name once. Without a name, show the short
+     value alone. Help and placeholder are fallbacks, never names for this combination.
+   - A name, alone or combined, uses source `.label`; a value alone uses `.element`. Both use the
+     element frame and the usual verbatim, outer-trimmed, capped display-text path below.
+   - `value` is fetched only by the `.value` step, which `ReadPlan` emits when `characterCount` is known
+     and ≤ `elementTextLimit`, or when the length is unknown and the role isn't a text area or text field
+     (§4.3). A control's title or description does not skip this attempt. `nonTextValueRoles` remain
+     excluded: checkbox state, slider numbers and link URLs are never fetched or shown.
+5. **Fallback label:** title, then description, then help, then placeholder. For controls, rung 4 has
+   already tried the name and value, so only help and placeholder remain before the walk. This covers
+   buttons, menu items, toolbar icons, tabs and Dock items.
 6. **Bounded walk** when the hit element is a container without text (`AXGroup`, `AXCell`, `AXRow`, or an
    `AXLink` around `AXStaticText`):
    - down at most 2 levels and 20 children per level, via `AXUIElementCopyAttributeValues(el,
@@ -1073,3 +1084,10 @@ Minor:
 - an own-pid hit while following is "no update" (§4.2);
 - tunable overrides are an in-memory overlay (§5.4);
 - `CommandShortcutMatcher` moved to M1 (§8).
+
+### Implementation follow-up
+
+- **C3, control values hid their names.** Dictop's selected SwiftUI Soniox button showed only
+  "Selected" (or "Multiple languages") because the short-value rung preceded its description. Core now
+  shows a control's name followed by its distinct short value, while text-value roles keep value first.
+  The read plan still tries a labelled control's value once and excludes non-text values (§3.3).

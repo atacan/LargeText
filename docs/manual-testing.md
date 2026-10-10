@@ -305,6 +305,10 @@ image, then select a few words and hover over the selection and next to it.
 
 - [ ] Hold over text: the card follows, never takes focus from the app (its window stays key, the caret
       keeps blinking), and clicks pass through the card and the highlight while following.
+- [ ] Hover a selected SwiftUI model row in Dictop's Transcription settings (such as Soniox), or another
+      named button with an accessibility value, and trigger the reader. The card shows the name first,
+      then its distinct short value on the next line ("Soniox\nSelected" or "Soniox\nMultiple languages"),
+      never the value alone. The highlight stays around the button.
 - [ ] Release closes; a quick tap pins the paragraph; ⎋, a backdrop click, ⌘Tab and the shortcut again
       close the pinned card. ⌘C copies, ⌘A selects, ⌘± / ⌘0 zoom and the size is shared with the editor.
 - [ ] Tap on nothing → HUD "No readable text under the pointer"; following over nothing → quiet
