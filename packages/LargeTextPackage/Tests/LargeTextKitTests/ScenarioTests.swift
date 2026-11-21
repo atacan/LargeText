@@ -254,6 +254,17 @@ import LargeTextUI
         #expect(loginItem.status == .enabled)
     }
 
+    /// The live updater would check the real feed and could replace the app; every scenario swaps in one that
+    /// does nothing, which also hides updates in the menus and Settings.
+    @Test(arguments: Scenario.allCases)
+    func everyScenarioSwapsInAnInMemoryUpdater(_ scenario: Scenario) throws {
+        var environment = environment()
+        environment.updater = InMemoryUpdater(isAvailable: true)
+        scenario.apply(to: &environment)
+        let updater = try #require(environment.updater as? InMemoryUpdater)
+        #expect(updater.isAvailable == false)
+    }
+
     /// Only `first-launch` opens Settings by itself (Settings plan §3.6).
     @Test(arguments: Scenario.allCases)
     func onlyFirstLaunchIsAFirstLaunch(_ scenario: Scenario) {

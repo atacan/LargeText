@@ -5,11 +5,13 @@ package enum StatusMenuModel {
     /// - Parameters:
     ///   - readerHotkey: shown in "Read Text Under Pointer (…)"; `nil` leaves that item out.
     ///   - hotkeyUnavailable: one disabled "Shortcut … unavailable" row each.
+    ///   - showsCheckForUpdates: adds "Check for Updates…" after "Settings…" (a build that can update itself).
     package static func items(
         hotkey: KeyCombo,
         readerHotkey: KeyCombo?,
         permissions: Permissions,
-        hotkeyUnavailable: [KeyCombo]
+        hotkeyUnavailable: [KeyCombo],
+        showsCheckForUpdates: Bool = false
     ) -> [StatusMenuItem] {
         var items: [StatusMenuItem] = [
             .action(title: "Open Large Editor (\(KeyComboFormatter.string(for: hotkey)))", action: .openEditor),
@@ -25,6 +27,9 @@ package enum StatusMenuModel {
             items.append(.info(title: "Shortcut \(KeyComboFormatter.string(for: combo)) unavailable"))
         }
         items.append(.action(title: "Settings…", action: .openSettings))
+        if showsCheckForUpdates {
+            items.append(.action(title: "Check for Updates…", action: .checkForUpdates))
+        }
         items.append(.separator)
         items.append(.action(title: "Quit LargeText", action: .quit))
         return items
@@ -35,7 +40,7 @@ package enum StatusMenuModel {
         switch action {
         case .openSettings: ","
         case .quit: "q"
-        case .openEditor, .readTextUnderPointer, .grantAccess, .relaunch: ""
+        case .openEditor, .readTextUnderPointer, .checkForUpdates, .grantAccess, .relaunch: ""
         }
     }
 

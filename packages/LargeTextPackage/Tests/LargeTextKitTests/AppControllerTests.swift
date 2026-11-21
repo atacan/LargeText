@@ -20,6 +20,7 @@ struct AppControllerTests {
     let pasteboard = FakePasteboard()
     let settingsPresenter = SpySettingsPresenter()
     let loginItem = SpyLoginItem()
+    let updater = InMemoryUpdater(isAvailable: true)
 
     init() {
         // Park the reader's key-state check and cap, so a following session stays open, and the Settings
@@ -47,7 +48,8 @@ struct AppControllerTests {
             keyState: FixedKeyState(),
             readerPresenter: readerPresenter,
             settingsPresenter: settingsPresenter,
-            loginItem: loginItem
+            loginItem: loginItem,
+            updater: updater
         )
         let controller = AppController(environment: environment, launch: launch)
         controller.startSessions()
@@ -348,6 +350,21 @@ struct AppControllerTests {
         settingsPresenter.send(.setLaunchAtLogin(false))
         #expect(loginItem.setEnabledCalls == [true, false])
         #expect(settingsPresenter.lastState?.loginItem == .notRegistered)
+        settingsPresenter.close()
+    }
+
+    /// The Updates section reaches the environment's updater.
+    @Test func updatesInSettingsReachTheEnvironmentsUpdater() {
+        let controller = makeController()
+        controller.openSettings()
+        #expect(settingsPresenter.lastState?.automaticallyChecksForUpdates == true)
+
+        settingsPresenter.send(.setAutomaticallyChecksForUpdates(false))
+        #expect(updater.automaticallyChecksForUpdates == false)
+        #expect(settingsPresenter.lastState?.automaticallyChecksForUpdates == false)
+
+        settingsPresenter.send(.checkForUpdates)
+        #expect(updater.checkCount == 1)
         settingsPresenter.close()
     }
 

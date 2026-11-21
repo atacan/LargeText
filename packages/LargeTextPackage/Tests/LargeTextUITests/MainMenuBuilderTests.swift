@@ -28,10 +28,15 @@ struct MainMenuBuilderTests {
 
     private func makeBuilder(
         allowsAppCommands: @escaping @MainActor () -> Bool = { true },
-        onOpenSettings: @escaping @MainActor () -> Void = {}
+        onOpenSettings: @escaping @MainActor () -> Void = {},
+        onCheckForUpdates: (@MainActor () -> Void)? = nil
     ) -> MainMenuBuilder {
         _ = NSApplication.shared
-        return MainMenuBuilder(onOpenSettings: onOpenSettings, allowsAppCommands: allowsAppCommands)
+        return MainMenuBuilder(
+            onOpenSettings: onOpenSettings,
+            onCheckForUpdates: onCheckForUpdates,
+            allowsAppCommands: allowsAppCommands
+        )
     }
 
     @Test func topLevelMenus() {
@@ -51,6 +56,18 @@ struct MainMenuBuilderTests {
             Entry("-"),
             Entry("Quit LargeText", "q"),
         ])
+    }
+
+    @Test func checkForUpdatesFollowsAboutAndCallsItsAction() throws {
+        var checks = 0
+        let builder = makeBuilder(onCheckForUpdates: { checks += 1 })
+        let app = try #require(builder.makeMenu().items[0].submenu)
+        #expect(entries(app).prefix(3) == [Entry("About LargeText"), Entry("Check for Updates…"), Entry("-")])
+
+        let item = try #require(app.items.first { $0.title == "Check for Updates…" })
+        let action = try #require(item.action)
+        NSApp.sendAction(action, to: item.target, from: item)
+        #expect(checks == 1)
     }
 
     @Test func editMenuUsesTheStandardSelectorsThroughTheResponderChain() throws {

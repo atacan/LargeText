@@ -27,6 +27,8 @@ package struct AppEnvironment {
     package var settingsPresenter: any SettingsPresenting
     /// Launch at login. Every scenario swaps in an `InMemoryLoginItem`, so it never registers the app.
     package var loginItem: any LoginItemControlling
+    /// Self-updates. Every scenario swaps in an `InMemoryUpdater`, so it never checks or installs.
+    package var updater: any UpdateChecking
 
     /// The reader and Settings services default to Core fakes, so call sites that predate them keep compiling.
     @MainActor
@@ -46,7 +48,8 @@ package struct AppEnvironment {
         keyState: any KeyStateReading = FixedKeyState(),
         readerPresenter: any ReaderPresenting = LoggingReaderPresenter(),
         settingsPresenter: any SettingsPresenting = LoggingSettingsPresenter(),
-        loginItem: any LoginItemControlling = InMemoryLoginItem()
+        loginItem: any LoginItemControlling = InMemoryLoginItem(),
+        updater: any UpdateChecking = InMemoryUpdater()
     ) {
         self.hotkeys = hotkeys
         self.focus = focus
@@ -64,6 +67,7 @@ package struct AppEnvironment {
         self.readerPresenter = readerPresenter
         self.settingsPresenter = settingsPresenter
         self.loginItem = loginItem
+        self.updater = updater
     }
 
     /// The production environment. Side-effect free.
@@ -85,7 +89,8 @@ package struct AppEnvironment {
             keyState: SystemKeyStateReader(mode: .keyState),
             readerPresenter: ReaderWindowController(),
             settingsPresenter: SettingsWindowController(),
-            loginItem: SMAppServiceLoginItem()
+            loginItem: SMAppServiceLoginItem(),
+            updater: SparkleUpdater()
         )
     }
 
@@ -146,6 +151,7 @@ package struct AppEnvironment {
             presenter: settingsPresenter,
             sleeper: sleeper,
             loginItem: loginItem,
+            updater: updater,
             context: context,
             relaunch: relaunch
         )

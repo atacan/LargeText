@@ -1,3 +1,8 @@
 **/.DS_Store
 .build/
 .claude/worktrees/
+
+# Release secrets: never commit
+sparkle-private-key.txt
+*.p12
+*.p8

@@ -24,6 +24,25 @@ struct StatusMenuModelTests {
         ])
     }
 
+    @Test func checkForUpdatesFollowsSettings() {
+        let items = StatusMenuModel.items(
+            hotkey: .default,
+            readerHotkey: nil,
+            permissions: .allGranted,
+            hotkeyUnavailable: [],
+            showsCheckForUpdates: true
+        )
+        #expect(items == [
+            .action(title: "Open Large Editor (⌃⌥⌘T)", action: .openEditor),
+            .info(title: "Accessibility: Granted ✓"),
+            settingsItem,
+            .action(title: "Check for Updates…", action: .checkForUpdates),
+            .separator,
+            .action(title: "Quit LargeText", action: .quit),
+        ])
+        #expect(StatusMenuModel.keyEquivalent(for: .checkForUpdates) == "")
+    }
+
     @Test func readerItemShowsTheConfiguredCombo() {
         let combo = KeyCombo(keyCode: 0x0D, modifiers: [.control, .shift])
         let items = StatusMenuModel.items(hotkey: .default, readerHotkey: combo, permissions: .allGranted, hotkeyUnavailable: [])

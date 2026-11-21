@@ -38,7 +38,8 @@ struct SettingsCoordinatorTests {
 
     func makeCoordinator(
         context: SettingsContext = .standard,
-        loginItem: (any LoginItemControlling)? = nil
+        loginItem: (any LoginItemControlling)? = nil,
+        updater: (any UpdateChecking)? = nil
     ) -> SettingsCoordinator {
         let relaunches = relaunches
         return keep(SettingsCoordinator(dependencies: SettingsDependencies(
@@ -48,6 +49,7 @@ struct SettingsCoordinatorTests {
             presenter: presenter,
             sleeper: sleeper,
             loginItem: loginItem,
+            updater: updater,
             context: context,
             relaunch: { relaunches.count += 1 }
         )))
@@ -59,8 +61,12 @@ struct SettingsCoordinatorTests {
     }
 
     /// A shown coordinator, as after "Settings…".
-    func shown(context: SettingsContext = .standard, loginItem: (any LoginItemControlling)? = nil) -> SettingsCoordinator {
-        let coordinator = makeCoordinator(context: context, loginItem: loginItem)
+    func shown(
+        context: SettingsContext = .standard,
+        loginItem: (any LoginItemControlling)? = nil,
+        updater: (any UpdateChecking)? = nil
+    ) -> SettingsCoordinator {
+        let coordinator = makeCoordinator(context: context, loginItem: loginItem, updater: updater)
         coordinator.show()
         return coordinator
     }
@@ -624,6 +630,45 @@ struct SettingsCoordinatorTests {
         presenter.send(.setLaunchAtLogin(true))
         #expect(presenter.lastState?.loginItemError == nil)
         #expect(presenter.lastState?.loginItem == .enabled)
+    }
+
+    // MARK: - Updates
+
+    @Test func withoutAnAvailableUpdaterTheSectionIsHiddenAndTheIntentsDoNothing() {
+        let updater = InMemoryUpdater(isAvailable: false, automaticallyChecksForUpdates: true)
+        let coordinator = shown(updater: updater)
+
+        presenter.send(.setAutomaticallyChecksForUpdates(false))
+        presenter.send(.checkForUpdates)
+
+        #expect(coordinator.state.automaticallyChecksForUpdates == nil)
+        #expect(coordinator.state.canCheckForUpdates == false)
+        #expect(updater.automaticallyChecksForUpdates == true)
+        #expect(updater.checkCount == 0)
+    }
+
+    @Test func turningOffAutomaticChecksIsShownAtOnce() {
+        let updater = InMemoryUpdater(isAvailable: true, automaticallyChecksForUpdates: true)
+        _ = shown(updater: updater)
+        #expect(presenter.shown.last?.automaticallyChecksForUpdates == true)
+
+        presenter.send(.setAutomaticallyChecksForUpdates(false))
+
+        #expect(updater.automaticallyChecksForUpdates == false)
+        #expect(presenter.lastState?.automaticallyChecksForUpdates == false)
+    }
+
+    @Test func checkNowChecksOnceAndIsDisabledWhileACheckRuns() async {
+        let updater = InMemoryUpdater(isAvailable: true)
+        _ = shown(updater: updater)
+        #expect(presenter.shown.last?.canCheckForUpdates == true)
+
+        presenter.send(.checkForUpdates)
+        #expect(updater.checkCount == 1)
+
+        updater.canCheckForUpdates = false
+        await tick()
+        #expect(presenter.lastState?.canCheckForUpdates == false)
     }
 
     // MARK: - Fakes

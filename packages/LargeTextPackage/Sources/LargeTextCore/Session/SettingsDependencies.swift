@@ -13,6 +13,8 @@ package struct SettingsDependencies {
     package var sleeper: any Sleeper
     /// `nil` hides launch at login (`SettingsState.loginItem == nil`).
     package var loginItem: (any LoginItemControlling)?
+    /// `nil`, or one that isn't available, hides the Updates section.
+    package var updater: (any UpdateChecking)?
     package var context: SettingsContext
     package var permissionRefreshInterval: Duration
     /// Quits and starts the app again ("Relaunch to finish setup").
@@ -25,6 +27,7 @@ package struct SettingsDependencies {
         presenter: any SettingsPresenting,
         sleeper: any Sleeper,
         loginItem: (any LoginItemControlling)? = nil,
+        updater: (any UpdateChecking)? = nil,
         context: SettingsContext = .standard,
         permissionRefreshInterval: Duration = .seconds(1),
         relaunch: @escaping @MainActor () -> Void
@@ -35,6 +38,7 @@ package struct SettingsDependencies {
         self.presenter = presenter
         self.sleeper = sleeper
         self.loginItem = loginItem
+        self.updater = updater
         self.context = context
         self.permissionRefreshInterval = permissionRefreshInterval
         self.relaunch = relaunch

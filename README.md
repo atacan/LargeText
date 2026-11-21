@@ -22,13 +22,32 @@ by itself on the first launch when Accessibility is missing. It controls:
 - the reader's hold threshold and the units it shows while following and when pinned;
 - restoring the clipboard after pasting;
 - Accessibility access (*Grant Access…* or *Relaunch*) and launch at login;
+- automatic update checks and *Check Now* (release builds only);
 - *Reset All Settings…* (leaves launch at login alone).
 
 Changes apply at once or on the next session; nothing needs a relaunch. While Settings is open, LargeText
 shows a Dock icon, a ⌘Tab entry and a small main menu (About, Settings…, Hide, Quit, Edit, Window); closing it
 makes the app menu-bar only again and returns focus to the previous app. The status menu has *Open Large
-Editor*, *Read Text Under Pointer* (unless turned off), the Accessibility item, *Settings…* and *Quit*. See
+Editor*, *Read Text Under Pointer* (unless turned off), the Accessibility item, *Settings…*, *Check for
+Updates…* (release builds only) and *Quit*. See
 `SETTINGS_IMPLEMENTATION_PLAN.md`.
+
+## Install
+
+Requires macOS 14 or later.
+
+- **Download** the DMG from the [latest release](https://github.com/atacan/LargeText/releases/latest), open
+  it and drag LargeText to Applications.
+- **Homebrew** (this repository is its own tap):
+
+  ```sh
+  brew tap atacan/largetext https://github.com/atacan/LargeText
+  brew install --cask largetext
+  ```
+
+LargeText updates itself (*Check for Updates…* in the status menu, and daily checks you can turn off in
+Settings). Releases are signed with Developer ID and notarized by Apple; see
+[docs/releasing.md](docs/releasing.md) for how they are made.
 
 ## Layout
 
@@ -41,6 +60,9 @@ packages/LargeTextPackage/   Swift package "LargeText" (all the code)
   Tests/                       Swift Testing suites + LargeTextTestSupport (spies)
 xcode/LargeText/             host AppKit app: main.swift calls LargeTextApplication.run()
 docs/manual-testing.md       hands-on checklist, spike items, logging & reset commands
+docs/releasing.md            how a merged pull request becomes a release; one-time setup
+scripts/release/             the release steps (build & notarize, appcast, GitHub release, cask)
+Casks/largetext.rb           the Homebrew cask, rewritten by every release
 ```
 
 ## Build & test
@@ -82,8 +104,12 @@ Launch arguments swap in fakes for hands-on testing (*Edit Scheme › Run › Ar
 - `--scenario settings-needs-relaunch` — Accessibility granted but event posting denied: Settings offers *Relaunch*
 - `--scenario first-launch` — a first launch with access denied: Settings opens by itself
 
-Every scenario keeps preferences and launch at login in memory, so nothing reaches the real defaults or
-the system's login items.
+Every scenario keeps preferences and launch at login in memory, and turns updates off, so nothing reaches
+the real defaults or the system's login items, and nothing is downloaded.
 
 Details, logging (`log stream --predicate 'subsystem == "LargeText"' --level debug`) and reset commands are
 in [docs/manual-testing.md](docs/manual-testing.md).
+
+## License
+
+MIT; see [LICENSE](LICENSE).

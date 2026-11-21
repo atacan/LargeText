@@ -11,9 +11,16 @@ let package = Package(
     products: [
         .library(name: "LargeTextKit", targets: ["LargeTextKit"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
+    ],
     targets: [
         .target(name: "LargeTextCore", swiftSettings: swiftSettings),
-        .target(name: "LargeTextPlatform", dependencies: ["LargeTextCore"], swiftSettings: swiftSettings),
+        .target(
+            name: "LargeTextPlatform",
+            dependencies: ["LargeTextCore", .product(name: "Sparkle", package: "Sparkle")],
+            swiftSettings: swiftSettings
+        ),
         .target(name: "LargeTextUI", dependencies: ["LargeTextCore"], swiftSettings: swiftSettings),
         .target(
             name: "LargeTextKit",

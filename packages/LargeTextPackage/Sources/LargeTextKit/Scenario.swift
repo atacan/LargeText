@@ -8,7 +8,8 @@ import LargeTextUI
 /// A scenario only mutates the `AppEnvironment` before assembly; `AppController` additionally starts the
 /// `ReaderProbe` for `reader-probe`. Every scenario swaps in an `InMemoryPreferencesStore`, so zooming or
 /// other preference writes never touch the real defaults, and an `InMemoryLoginItem`, so the Settings toggle
-/// never registers the app for launch at login. Its first launch is already done, so Settings only
+/// never registers the app for launch at login, and an `InMemoryUpdater`, so it never checks for updates. Its
+/// first launch is already done, so Settings only
 /// opens by itself in `first-launch`. Kit-owned responsibilities (activation policy,
 /// status item, hotkeys (except in `settings-hotkey-taken`), permission request) stay live.
 ///
@@ -52,6 +53,7 @@ package enum Scenario: String, CaseIterable, Sendable {
     package func apply(to environment: inout AppEnvironment) {
         environment.preferences = InMemoryPreferencesStore(hasCompletedFirstLaunch: self != .firstLaunch)
         environment.loginItem = InMemoryLoginItem()
+        environment.updater = InMemoryUpdater()
         if environment.settingsPresenter is SettingsWindowController {
             // Not even the window frame is saved.
             environment.settingsPresenter = SettingsWindowController(frameAutosaveName: nil)

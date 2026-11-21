@@ -36,6 +36,10 @@ package struct SettingsState: Equatable, Sendable {
     package var loginItem: LoginItemStatus?
     /// The last enable or disable that failed; cleared by the next attempt.
     package var loginItemError: LoginItemError?
+    /// Daily update checks; `nil` when this build can't update itself (no available `UpdateChecking`).
+    package var automaticallyChecksForUpdates: Bool?
+    /// Whether "Check Now" is enabled; false while a check or an update is in progress.
+    package var canCheckForUpdates: Bool
     package var context: SettingsContext
 
     package init(
@@ -50,6 +54,8 @@ package struct SettingsState: Equatable, Sendable {
         permission: PermissionSetup,
         loginItem: LoginItemStatus?,
         loginItemError: LoginItemError? = nil,
+        automaticallyChecksForUpdates: Bool? = nil,
+        canCheckForUpdates: Bool = false,
         context: SettingsContext
     ) {
         self.editorShortcut = editorShortcut
@@ -63,6 +69,8 @@ package struct SettingsState: Equatable, Sendable {
         self.permission = permission
         self.loginItem = loginItem
         self.loginItemError = loginItemError
+        self.automaticallyChecksForUpdates = automaticallyChecksForUpdates
+        self.canCheckForUpdates = canCheckForUpdates
         self.context = context
     }
 

@@ -1,0 +1,148 @@
+# Every merged pull request is released: a signed, notarized DMG on a GitHub release, the Sparkle feed
+# (appcast.xml on that release) and the Homebrew cask in Casks/. See docs/releasing.md.
+#
+# Labels on the pull request: `release:minor` / `release:major` pick the bump (patch otherwise);
+# `skip-release` releases nothing. Notes come from its "## Release notes" section, or its title.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    # A merge that only touches these isn't released. The cask commit this workflow pushes is one of them,
+    # although a push made with GITHUB_TOKEN doesn't start a workflow anyway.
+    paths-ignore:
+      - "Casks/**"
+      - "docs/**"
+      - "**/*.md"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/pull_request_template.md"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      notes:
+        description: Release notes (Markdown); defaults to the last commit's subject
+        type: string
+        required: false
+
+# One release at a time, never cancelled halfway through. A run that is still waiting is replaced by a newer
+# one; the newer one builds a later commit, so its release includes the changes of the one it replaced.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  release:
+    name: Build, notarize and publish
+    runs-on: xcode-27
+    # Holds the signing secrets; add required reviewers to it if you want to approve each release.
+    environment: release
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Decide the release
+        id: plan
+        env:
+          INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_NOTES: ${{ inputs.notes }}
+        run: scripts/release/resolve-release.sh
+
+      - name: Show the toolchain
+        if: steps.plan.outputs.skip != 'true'
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Fetch the current appcast
+        if: steps.plan.outputs.skip != 'true'
+        id: appcast
+        run: scripts/release/fetch-appcast.sh
+
+      - name: Import the signing certificate and notary key
+        if: steps.plan.outputs.skip != 'true'
+        id: signing
+        env:
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: scripts/release/import-signing-certificate.sh
+
+      - name: Build, sign and notarize
+        if: steps.plan.outputs.skip != 'true'
+        id: build
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          BUILD_NUMBER: ${{ steps.appcast.outputs.build_number }}
+          ASC_KEY_PATH: ${{ steps.signing.outputs.asc_key_path }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: scripts/release/build-dmg.sh
+
+      - name: Update the appcast
+        if: steps.plan.outputs.skip != 'true'
+        id: feed
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          BUILD_NUMBER: ${{ steps.appcast.outputs.build_number }}
+          DMG_PATH: ${{ steps.build.outputs.dmg_path }}
+          NOTES_PATH: ${{ steps.plan.outputs.notes_path }}
+          PREVIOUS_APPCAST: ${{ steps.appcast.outputs.appcast_path }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: scripts/release/update-appcast.sh
+
+      - name: Publish the GitHub release
+        if: steps.plan.outputs.skip != 'true'
+        id: publish
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          DMG_PATH: ${{ steps.build.outputs.dmg_path }}
+          APPCAST_PATH: ${{ steps.feed.outputs.appcast_path }}
+          NOTES_PATH: ${{ steps.plan.outputs.notes_path }}
+          TARGET_SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ steps.plan.outputs.pr_number }}
+        run: scripts/release/publish-release.sh
+
+      - name: Update the Homebrew cask
+        if: steps.plan.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          DMG_SHA256: ${{ steps.build.outputs.dmg_sha256 }}
+          COMMIT: "1"
+        run: scripts/release/update-cask.sh
+
+      - name: Summary
+        if: steps.plan.outputs.skip != 'true'
+        run: |
+          {
+            echo "### LargeText ${{ steps.plan.outputs.version }} (build ${{ steps.appcast.outputs.build_number }})"
+            echo
+            echo "${{ steps.publish.outputs.release_url }}"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the build for inspection
+        if: failure() && steps.build.outputs.dmg_path != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: largetext-dmg
+          path: ${{ steps.build.outputs.dmg_path }}
+          retention-days: 7
+
+      - name: Remove the signing keychain and keys
+        if: always()
+        run: |
+          if [[ -n "${{ steps.signing.outputs.keychain_path }}" ]]; then
+            security delete-keychain "${{ steps.signing.outputs.keychain_path }}" || true
+          fi
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/developer-id.p12"

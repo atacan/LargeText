@@ -5,24 +5,28 @@ import AppKit
 ///
 /// The menu also gives the Settings window ⌘W, ⌘Q and the edit keys. The editor and reader panels never
 /// reach it for their own keys: AppKit asks the key window before the main menu, and their text views
-/// handle their ⌘-shortcuts there. The app commands (About, Settings…, Hide, Quit) are disabled while a
+/// handle their ⌘-shortcuts there. The app commands (About, Check for Updates…, Settings…, Hide, Quit) are disabled while a
 /// panel is key, so an unhandled ⌘Q or ⌘H in the editor does nothing, as it did before this menu existed.
 @MainActor
 package final class MainMenuBuilder: NSObject, NSMenuItemValidation {
     package static let appName = "LargeText"
 
     private let onOpenSettings: @MainActor () -> Void
+    private let onCheckForUpdates: (@MainActor () -> Void)?
     private let allowsAppCommands: @MainActor () -> Bool
 
     /// - Parameters:
     ///   - onOpenSettings: "Settings…" (⌘,).
+    ///   - onCheckForUpdates: "Check for Updates…"; `nil` leaves it out.
     ///   - allowsAppCommands: whether About, Settings…, Hide and Quit are enabled; by default, unless a panel
     ///     (the editor or the pinned reader) is the key window.
     package init(
         onOpenSettings: @escaping @MainActor () -> Void,
+        onCheckForUpdates: (@MainActor () -> Void)? = nil,
         allowsAppCommands: @escaping @MainActor () -> Bool = { !(NSApp.keyWindow is NSPanel) }
     ) {
         self.onOpenSettings = onOpenSettings
+        self.onCheckForUpdates = onCheckForUpdates
         self.allowsAppCommands = allowsAppCommands
         super.init()
     }
@@ -48,6 +52,9 @@ package final class MainMenuBuilder: NSObject, NSMenuItemValidation {
     private func appMenu() -> NSMenu {
         let menu = NSMenu(title: Self.appName)
         menu.addItem(item("About \(Self.appName)", #selector(about(_:)), target: self))
+        if onCheckForUpdates != nil {
+            menu.addItem(item("Check for Updates…", #selector(checkForUpdates(_:)), target: self))
+        }
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(openSettings(_:)), ",", target: self))
         menu.addItem(.separator())
@@ -100,6 +107,10 @@ package final class MainMenuBuilder: NSObject, NSMenuItemValidation {
 
     @objc private func openSettings(_ sender: Any?) {
         onOpenSettings()
+    }
+
+    @objc private func checkForUpdates(_ sender: Any?) {
+        onCheckForUpdates?()
     }
 
     @objc private func hide(_ sender: Any?) {

@@ -69,7 +69,14 @@ package final class AppController: NSObject, NSApplicationDelegate {
         // 1. Activation policy (LSUIElement already makes us an accessory app; this is defensive).
         NSApplication.shared.setActivationPolicy(.accessory)
         //    The main menu, once: it only shows while Settings makes the app regular (Settings plan §3.3).
-        let mainMenu = MainMenuBuilder(onOpenSettings: { [weak self] in self?.openSettings() })
+        var checkForUpdates: (@MainActor () -> Void)?
+        if environment.updater.isAvailable {
+            checkForUpdates = { [weak self] in self?.checkForUpdates() }
+        }
+        let mainMenu = MainMenuBuilder(
+            onOpenSettings: { [weak self] in self?.openSettings() },
+            onCheckForUpdates: checkForUpdates
+        )
         mainMenu.install()
         self.mainMenu = mainMenu
 
@@ -85,7 +92,8 @@ package final class AppController: NSObject, NSApplicationDelegate {
             permissions: environment.permissions,
             onOpenEditor: { [weak self] in self?.openEditorClosingReader() },
             onReadTextUnderPointer: { [weak self] in self?.showReaderMenuHint() },
-            onOpenSettings: { [weak self] in self?.openSettings() }
+            onOpenSettings: { [weak self] in self?.openSettings() },
+            onCheckForUpdates: checkForUpdates
         )
         self.statusItem = statusItem
         shortcutsChanged()
@@ -98,14 +106,17 @@ package final class AppController: NSObject, NSApplicationDelegate {
         // 5. Ask for Accessibility once, outside any session; on the first launch, Settings opens first.
         requestAccessIfNeeded()
 
-        // 6. The spike harness; the coordinators know nothing about it.
+        // 6. Scheduled update checks; nothing for a build without a feed, or in a scenario.
+        environment.updater.start()
+
+        // 7. The spike harness; the coordinators know nothing about it.
         if launch.scenario == .readerProbe {
             let probe = ReaderProbe(pointer: environment.pointer)
             probe.start()
             self.probe = probe
         }
 
-        // 7. Present on launch.
+        // 8. Present on launch.
         if launch.presentSettingsOnLaunch {
             openSettings()
         }
@@ -270,6 +281,13 @@ package final class AppController: NSObject, NSApplicationDelegate {
         if state.releasesAtOnce {
             readerHotkey(HotkeyEvent(phase: .released, at: now))
         }
+    }
+
+    /// "Check for Updates…" in the status menu and the main menu. Sparkle shows its own window, which an
+    /// accessory app has to bring forward itself.
+    private func checkForUpdates() {
+        NSApplication.shared.activate()
+        environment.updater.checkForUpdates()
     }
 
     /// Launch-time only; `HotkeyBindings` has already logged it.
