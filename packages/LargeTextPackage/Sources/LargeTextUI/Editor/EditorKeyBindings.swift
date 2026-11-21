@@ -12,6 +12,7 @@ package enum EditorKeyBindings {
         switch CommandShortcutMatcher.match(input) {
         case .zoom(let step): return .zoom(step)
         case .edit(let edit): return .standardEdit(edit)
+        case .openSettings: return .openSettings
         case nil: return nil
         }
     }

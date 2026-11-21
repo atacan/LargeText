@@ -55,6 +55,8 @@ package struct ReaderIntent: Equatable, Sendable {
         /// ⎋ and backdrop click → `.userCancelled`; resign key → `.lostFocus`.
         case close(ReaderCloseReason)
         case zoom(ZoomStep)
+        /// ⌘, on the pinned card (Settings plan §3.5): closes the card, then opens Settings.
+        case openSettings
     }
 
     package let sessionID: UUID

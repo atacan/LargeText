@@ -11,6 +11,25 @@ you can scroll, copy (⌘C) or zoom (⌘±), then ⎋ closes it. Password fields
 "Hidden text". It reads through the Accessibility API and needs the same grant as the editor. See
 `READER_IMPLEMENTATION_PLAN.md`.
 
+**Settings.** Open it with *Settings…* in the status menu, with ⌘, in the editor or on the pinned reader card
+(the editor closes first; text you typed is copied to the clipboard and kept as the draft, as with ⎋), or
+by itself on the first launch when Accessibility is missing. It controls:
+
+- both shortcuts, recorded in place: the editor's can be changed or reset; the reader's can also be turned
+  off, which leaves *Read Text Under Pointer* out of the menu;
+- separate text sizes for the editor and the reader (⌘± changes the one in use; an existing reader size
+  starts at the editor size);
+- the reader's hold threshold and the units it shows while following and when pinned;
+- restoring the clipboard after pasting;
+- Accessibility access (*Grant Access…* or *Relaunch*) and launch at login;
+- *Reset All Settings…* (leaves launch at login alone).
+
+Changes apply at once or on the next session; nothing needs a relaunch. While Settings is open, LargeText
+shows a Dock icon, a ⌘Tab entry and a small main menu (About, Settings…, Hide, Quit, Edit, Window); closing it
+makes the app menu-bar only again and returns focus to the previous app. The status menu has *Open Large
+Editor*, *Read Text Under Pointer* (unless turned off), the Accessibility item, *Settings…* and *Quit*. See
+`SETTINGS_IMPLEMENTATION_PLAN.md`.
+
 ## Layout
 
 ```
@@ -58,6 +77,13 @@ Launch arguments swap in fakes for hands-on testing (*Edit Scheme › Run › Ar
 - `--present-reader-on-launch=pinned|following|nothing|hidden|long` — a reader card in that state right after launch
 - `--scenario reader-no-accessibility` — the reader shortcut shows the Accessibility HUD
 - `--scenario reader-probe` — logs what the element under the pointer exposes, once per second (spikes)
+- `--present-settings-on-launch` — open Settings right after launch
+- `--scenario settings-hotkey-taken` — ⌃⌥⌘E and ⌃⌥⌘Y are refused as if another app held them
+- `--scenario settings-needs-relaunch` — Accessibility granted but event posting denied: Settings offers *Relaunch*
+- `--scenario first-launch` — a first launch with access denied: Settings opens by itself
+
+Every scenario keeps preferences and launch at login in memory, so nothing reaches the real defaults or
+the system's login items.
 
 Details, logging (`log stream --predicate 'subsystem == "LargeText"' --level debug`) and reset commands are
 in [docs/manual-testing.md](docs/manual-testing.md).

@@ -6,6 +6,8 @@ package enum ReaderAction: Equatable, Sendable {
     case zoom(ZoomStep)
     case copy
     case selectAll
+    /// ⌘,: closes the card, then Settings opens.
+    case openSettings
 }
 
 /// Pure key → action table for the pinned reader card (§4.5). The following card is never key, so it
@@ -17,6 +19,7 @@ package enum ReaderKeyBindings {
         case .zoom(let step): return .zoom(step)
         case .edit(.copy): return .copy
         case .edit(.selectAll): return .selectAll
+        case .openSettings: return .openSettings
         case .edit, nil: return nil
         }
     }

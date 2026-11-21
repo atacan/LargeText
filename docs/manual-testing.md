@@ -334,3 +334,108 @@ image, then select a few words and hover over the selection and next to it.
       (expected: nothing). Note per app the `steps=[…]`, `source`, call count and duration, and any hover
       side effects of holding ⌃⌥⌘ (Xcode ⌘-hover links, ⌥ in Finder, macOS Hover Text). Web content in
       browsers and Electron apps goes through text markers: see *Web content (R3, R5)* above.
+
+## Settings
+
+The Settings window (`SETTINGS_IMPLEMENTATION_PLAN.md`). Open it with *Settings…* in the status menu, ⌘, in
+the editor or on the pinned reader card, or at launch with `--present-settings-on-launch`. While it is open,
+LargeText is a regular app (Dock icon, ⌘Tab entry, main menu); closing it makes it menu-bar only again.
+Logs: `UI` (window shown and closed), `Core` (`Settings: …` for every saved, refused or unavailable
+shortcut, and launch-at-login failures), `Kit` (`Shortcuts suspended`, registration failures), `Platform`
+(`Login item: …`).
+
+### Settings scenarios and flags
+
+| Arguments | What you get |
+|---|---|
+| `--present-settings-on-launch` | Opens Settings right after launch (with any scenario, or alone against the real defaults). |
+| `--scenario settings-hotkey-taken --present-settings-on-launch` | The live Carbon registrar, wrapped so that ⌃⌥⌘E and ⌃⌥⌘Y are refused as if another app held them. Recording either shows "This shortcut couldn't be registered…", nothing is saved and the saved shortcut keeps working. Everything else is live. |
+| `--scenario settings-needs-relaunch --present-settings-on-launch` | Accessibility reports granted and event posting denied: the Accessibility row and the status menu offer *Relaunch*. |
+| `--scenario first-launch` | A first launch with permissions denied: Settings opens by itself (no system prompt, since the permissions are fixed). |
+| `--reader-hold-threshold <ms>`, `--following-unit <unit>` | The row shows "Set by `--…` for this run; not saved." |
+
+Every scenario keeps its preferences in memory, so the window shows the banner "Scenario '…': changes are
+kept in memory only." and nothing reaches `defaults read com.actondon.LargeText`. Every scenario also uses an
+in-memory login item, so *Launch at login* only toggles in memory and never registers the app.
+
+### Settings checklist
+
+Opening and closing:
+- [ ] Opens from the status menu, with ⌘, in the editor (empty, and with text: the text goes to the
+      clipboard with a HUD) and with ⌘, on the pinned reader card.
+- [ ] Opens on the current Space, and over a full-screen app.
+- [ ] While open, the Dock icon and the ⌘Tab entry appear. ⌘W, ⎋ and the close button close it; the Dock
+      icon goes away and focus returns to the app that was frontmost.
+
+Main menu while Settings is open:
+- [ ] About, Settings…, Hide, Quit, Edit and Window work.
+- [ ] ⌘±, ⌘0 and ⌘↩ in the editor are not taken by the menu.
+
+Shortcut recorders:
+- [ ] Tab onto a recorder does not start recording; a click, Space or Return does ("Type Shortcut"), and
+      holding ⌃⌥ shows "⌃⌥…".
+- [ ] While recording, ⌃⌥⌘T and ⌃⌥⌘R open nothing (both shortcuts are paused).
+- [ ] Record ⌃⌥⌘E for the editor: the new combo opens the editor at once, ⌃⌥⌘T does nothing, and the status
+      menu shows ⌃⌥⌘E. Same for the reader with another combo.
+- [ ] ⌘ combos are recorded (⌘⇧K), not taken by the main menu; ⌘Q and ⌘W are recorded and refused as
+      "macOS or every app already uses this shortcut", and the app doesn't quit or close.
+- [ ] Recording the other slot's combo shows "Already used for …"; ⌥ alone (⌥K) and a bare letter are
+      refused with their messages; F5 alone is accepted.
+- [ ] ⎋ cancels the recording and leaves the window open; the saved combo works again. A second ⎋ (recorder
+      focused, not recording) closes the window.
+- [ ] Closing the window, clicking another app or clicking the other recorder while recording restores both
+      shortcuts.
+- [ ] With `--scenario settings-hotkey-taken`, recording ⌃⌥⌘E or ⌃⌥⌘Y shows the unavailable message and the
+      old shortcut still works.
+- [ ] A real cross-app conflict (a combo another app registered first): note what happens; the footnote
+      only hints at it (spike 0g).
+- [ ] VoiceOver reads the recorder as "Open Large Editor, ⌃⌥⌘T, shortcut recorder" (or similar) and
+      VO-Space starts recording.
+- [ ] On a German layout, record ⌃⌥⌘Z (the key printed Z): it works; the window names it by its US position
+      ("⌃⌥⌘Y"), a known limit of `KeyComboFormatter`.
+
+Reader off:
+- [ ] *Turn Off*: ⌃⌥⌘R does nothing, the status menu leaves out *Read Text Under Pointer*, the reader
+      controls are disabled, and it survives a relaunch. *Reset* turns it back on.
+
+Other settings:
+- [ ] Editor and reader text sizes change independently; an existing user's reader size starts at their
+      editor size. ⌘± in a session updates the slider within about 1 s.
+- [ ] Hold threshold, both units and clipboard restore take effect on the next session without a relaunch;
+      with clipboard restore off the HUD says "your clipboard now contains…".
+- [ ] *Reset All Settings…* asks first, then restores every default and both shortcuts.
+
+Accessibility:
+- [ ] After `tccutil reset Accessibility com.actondon.LargeText`, *Grant Access…* adds LargeText to the
+      list and shows the system prompt; granting updates the row within about 1 s.
+- [ ] Revoking while the window is open updates the row within about 1 s.
+
+First launch (after `defaults delete com.actondon.LargeText` and `tccutil reset Accessibility com.actondon.LargeText`):
+- [ ] Settings opens with the system prompt over it; the second launch doesn't open Settings.
+
+Launch arguments and scenarios:
+- [ ] The launch-argument notes and the scenario banner show, and nothing reaches `defaults read`.
+
+Launch at login (`SMAppService.mainApp`, Settings plan §3.7). The system is the source of truth, so the
+toggle shows what macOS reports each time the window is rebuilt. A build run from Xcode or DerivedData
+registers *that* path: macOS would later launch the DerivedData copy, or report the item as not found once
+the build is cleaned. Test only from an exported build in /Applications, and turn the toggle off again
+before deleting that copy. Scenarios use an in-memory login item (the log says `InMemoryLoginItem: enabled
+(not saved)`), so test without `--scenario`. Logs: `Platform` (`Login item: registered…`, or the failing
+domain and code); `sfltool dumpbtm | grep -B2 -A12 LargeText` shows what macOS registered and from which path.
+- [ ] Export a signed build (*Product › Archive › Distribute App › Copy App*, or Developer ID) and copy it
+      to /Applications. Quit any other LargeText, then start the /Applications copy.
+- [ ] *Launch at login* starts off. Turn it on: the toggle stays on, either with no note (enabled) or with
+      "Allow LargeText in System Settings › General › Login Items…" and *Open Login Items…* (requires
+      approval). The button opens System Settings › General › Login Items, with LargeText listed.
+- [ ] If approval is needed, allow it there; the note goes away when the window becomes key again (or
+      within about 1 s while it is open).
+- [ ] Log out and back in: LargeText starts by itself, menu-bar only, without opening Settings.
+- [ ] Turn it off in the window: LargeText leaves *Open at Login*; after logging out and in it doesn't
+      start.
+- [ ] Turn it off in System Settings › Login Items instead, then reopen Settings: the toggle is off (or shows
+      the approval note). Turning it on again either works or shows "macOS didn't allow this change…" with
+      *Open Login Items…*; note which.
+- [ ] *Reset All Settings…* leaves launch at login as it was.
+- [ ] From a DerivedData build (for the record only): note what the toggle shows and the path in
+      `sfltool dumpbtm`; turn it off again before switching back to the /Applications copy.

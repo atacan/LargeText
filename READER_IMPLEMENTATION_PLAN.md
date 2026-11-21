@@ -2,7 +2,8 @@
 
 > **Feature: Reader.** Point at small text anywhere on screen (a label, a menu item, a tweet, a line in a
 > document) and press a shortcut. The text under the pointer appears in a large, read-only card, at the
-> **same font size as the editor**.
+> **same font size as the editor** *(since the Settings window, its own size, seeded from the editor's;
+> see §11)*.
 > - **Tap** the shortcut to pin the card.
 > - **Press and hold** it to make the card follow the pointer until you let go.
 >
@@ -27,7 +28,9 @@ hold ⌘ and hover, and a small bubble shows the text under the pointer. Its lim
 - It looks dated and is hard to read from across the room.
 
 **Reader v1:**
-- uses the editor's font size and card styling, shared through the `fontSize` preference;
+- uses the editor's font size and card styling, shared through the `fontSize` preference *(Settings
+  follow-up: the reader now has its own `readerFontSize`, which falls back to `fontSize` until it is first
+  written; see `SETTINGS_IMPLEMENTATION_PLAN.md` §3.4)*;
 - picks a sensible **text unit**: the selection, else the sentence or paragraph under the pointer, else
   the element's label;
 - has two gestures on one shortcut:
@@ -612,6 +615,10 @@ Both coordinators expose `isIdle`. `AppController`:
     An equal combo means the reader isn't registered and `.hotkeyUnavailable` is reported.
   - `StatusMenuModel` and `StatusItemController.hotkeyUnavailable` change from one `KeyCombo?` to a list
     `[KeyCombo]`.
+  - *Settings follow-up:* the Settings window refuses the other slot's combo before registering it
+    (`ShortcutRules`, which delegates to `HotkeyConflicts`), and the reader shortcut can be turned off
+    (`readerHotkey == nil`: not registered, and the menu item is left out). Registration lives in Kit's
+    `HotkeyBindings` (`SETTINGS_IMPLEMENTATION_PLAN.md` §3.8).
 
 ### 4.11 Making other apps expose their accessibility tree, scoped and logged
 
@@ -767,7 +774,8 @@ Sources/LargeTextUI/
       `FixedKeyState(isDown: true)`, so the key-state check doesn't see "released", and suppresses the
       30 s cap.
   - `--reader-hold-threshold <ms>` and `--following-unit <sentence|line|paragraph>` override the
-    preferences, so the tunables can be tried without a settings UI. They are applied as an **in-memory
+    preferences, so the tunables can be tried without a settings UI *(the Settings window now has them too,
+    and marks a launch-overridden row "Set by `--…` for this run; not saved")*. They are applied as an **in-memory
     overlay** on top of the store and never written to the real `UserDefaults`, the same way scenarios
     swap in `InMemoryPreferencesStore`.
 
@@ -799,7 +807,7 @@ The existing pattern stays: Swift Testing, pure functions tested directly, coord
 | Suite | Covers |
 |---|---|
 | `ReaderGestureTests` | effects output (`startFollowing`/`pin`/`close`/`ignore`); `.forceClose` only after a decided hold; press during closing and its release ignored; tap, hold and the threshold edge, all from **event timestamps**; press while following handled per the R1 outcome (missed release, or ignored); a poll-created release before `holdThreshold + 100 ms` is impossible (a tap released at 280 ms is never a hold); press while pinned closes and the next release is ignored; a lone release is ignored; max follow duration |
-| `ReadingSessionCoordinatorTests` | **Races**, using `ControllableTextReader` (no real delays): release (tap) before read #1 finishes → presented pinned; release (hold) before read #1 → nothing presented; a move while a read runs → one follow-up read with the latest point; pin while a read runs → frozen on the last displayed result; a stale `seq` is dropped; a result after close is dropped. **Also:** deduplication, zoom persisting the shared font size, stale-session intents ignored, `.nothing` on tap → HUD, `.hidden` on tap → pinned card, `.permissionMissing` mid-follow → close + one HUD, a result after pin dropped, `pointerMoved` forwarded on every tick, the `ReadPolicy` snapshot passed to every read, `isIdle`. **`close()` twice during a fade awaits the same dismissal; two editor presses during the reader fade open the editor exactly once; a second press arriving before the first Task has started is ignored** (Kit test with spies); tap before read #1 → `pinnedAwaitingFirst` → presented pinned on arrival; every phase change comes from a `ReaderEffect` |
+| `ReadingSessionCoordinatorTests` | **Races**, using `ControllableTextReader` (no real delays): release (tap) before read #1 finishes → presented pinned; release (hold) before read #1 → nothing presented; a move while a read runs → one follow-up read with the latest point; pin while a read runs → frozen on the last displayed result; a stale `seq` is dropped; a result after close is dropped. **Also:** deduplication, zoom persisting the shared font size *(now `readerFontSize`, leaving `fontSize` alone)*, stale-session intents ignored, `.nothing` on tap → HUD, `.hidden` on tap → pinned card, `.permissionMissing` mid-follow → close + one HUD, a result after pin dropped, `pointerMoved` forwarded on every tick, the `ReadPolicy` snapshot passed to every read, `isIdle`. **`close()` twice during a fade awaits the same dismissal; two editor presses during the reader fade open the editor exactly once; a second press arriving before the first Task has started is ignored** (Kit test with spies); tap before read #1 → `pinnedAwaitingFirst` → presented pinned on arrival; every phase change comes from a `ReaderEffect` |
 | `ReadPlanTests` | step order per role and attribute combination; short native static text → `.value` → `.done`; **an `AXTextArea` with 1 M characters never emits `.value`**; **short static text in a web area → `.textMarkers`**; **an unsupported or failed step → never repeated, ends in `.done`** |
 | `ReadTextChooserTests` | the §3.3 ladder; secure **subrole**; hidden found during a walk; denylisted app (defence in depth; the actor's early `.hidden` is covered by a Platform test with a stubbed pid lookup); web selection vs. native selection; a long `value` is not used as element text; label order |
 | `TextSegmenterTests` | units inside a window with offset mapping; window edges; CRLF; emoji and UTF-16 offsets; the cap |
@@ -906,7 +914,8 @@ The existing pattern stays: Swift Testing, pure functions tested directly, coord
 1. Units: are sentence (following) and paragraph (pinned) right, or should a second tap expand line →
    paragraph → whole element?
 2. Is following without a backdrop readable enough over busy content?
-3. Should the reader share the editor's font size (current plan) or have its own?
+3. Should the reader share the editor's font size (current plan) or have its own? *Answered: its own,
+   seeded from the editor's (`SETTINGS_IMPLEMENTATION_PLAN.md` D4).*
 4. Is 300 ms the right hold threshold from the couch?
 5. **Speak it** (`AVSpeechSynthesizer`, one key when pinned)?
 6. **Keyboard-focus mode:** reading the focused element's selection or caret line when the pointer is
@@ -1091,3 +1100,13 @@ Minor:
   "Selected" (or "Multiple languages") because the short-value rung preceded its description. Core now
   shows a control's name followed by its distinct short value, while text-value roles keep value first.
   The read plan still tries a labelled control's value once and excludes non-text values (§3.3).
+
+### Settings follow-up
+
+The Settings window (`SETTINGS_IMPLEMENTATION_PLAN.md`) changed three things this plan describes, marked
+*Settings follow-up* where they appear (§1, §4.10, §5.4, §6, §10.3) rather than rewritten:
+- the reader has its own text size, `readerFontSize`, which falls back to `fontSize` until it is first
+  written, so existing users keep their size; ⌘± on the pinned card writes only `readerFontSize`;
+- the reader shortcut can be turned off (`readerHotkey: KeyCombo?`, stored as `"off"`);
+- the hold threshold, both units and the shortcut can be changed in the window; ⌘, on the pinned card closes
+  it and opens Settings.

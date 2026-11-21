@@ -379,4 +379,104 @@ struct EditingSessionCoordinatorTests {
         }
         #expect(harness.coordinator.phase == .idle)
     }
+
+    // MARK: - ⌘, (Settings plan §3.5)
+
+    @Test func openSettingsWithTextCopiesItClosesAndThenAsksForSettings() async throws {
+        let harness = CoordinatorHarness()
+        var phaseWhenAsked: EditingSessionCoordinator.Phase?
+        harness.coordinator.onOpenSettings = { phaseWhenAsked = harness.coordinator.phase }
+        let id = try #require(await harness.open())
+        harness.overlay.textToReturn = "half-typed"
+
+        await harness.send(.openSettings, to: id)
+
+        #expect(harness.log.events == [
+            .present(initialText: ""),
+            .dismiss,
+            .write("half-typed", transient: false),
+            .notice(.copiedToClipboard(.settingsOpened)),
+        ])
+        #expect(harness.pasteboard.string == "half-typed")
+        #expect(harness.inserter.calls.isEmpty)
+        #expect(phaseWhenAsked == .idle)
+        #expect(harness.coordinator.phase == .idle)
+    }
+
+    @Test func openSettingsWhenEmptyJustCloses() async throws {
+        let harness = CoordinatorHarness()
+        var asked = 0
+        harness.coordinator.onOpenSettings = { asked += 1 }
+        let id = try #require(await harness.open())
+
+        await harness.send(.openSettings, to: id)
+
+        #expect(harness.log.events == [.present(initialText: ""), .dismiss])
+        #expect(harness.pasteboard.writes.isEmpty)
+        #expect(asked == 1)
+        #expect(harness.coordinator.phase == .idle)
+    }
+
+    /// Closes like ⎋, so the text also comes back as the draft next time.
+    @Test func textClosedForSettingsIsKeptAsTheDraft() async throws {
+        let harness = CoordinatorHarness()
+        let id = try #require(await harness.open())
+        harness.overlay.textToReturn = "half-typed"
+        await harness.send(.openSettings, to: id)
+
+        _ = try #require(await harness.open())
+
+        #expect(harness.overlay.lastInitialText == "half-typed")
+    }
+
+    @Test func closeForSettingsFromKitCopiesWithoutAskingForSettings() async throws {
+        let harness = CoordinatorHarness()
+        var asked = 0
+        harness.coordinator.onOpenSettings = { asked += 1 }
+        _ = try #require(await harness.open())
+        harness.overlay.textToReturn = "hello"
+
+        await harness.coordinator.closeForSettings()
+
+        #expect(harness.pasteboard.string == "hello")
+        #expect(harness.notices.shown == [.copiedToClipboard(.settingsOpened)])
+        #expect(asked == 0)
+        #expect(harness.coordinator.phase == .idle)
+    }
+
+    @Test func closeForSettingsWhileIdleDoesNothing() async throws {
+        let harness = CoordinatorHarness()
+        await harness.coordinator.closeForSettings()
+        #expect(harness.log.events.isEmpty)
+        #expect(harness.coordinator.phase == .idle)
+    }
+
+    /// A ⌘↩ commit still inserting when Settings is requested: Kit must wait for it, so Settings doesn't
+    /// activate LargeText before the paste reaches the target app. Nothing extra is copied.
+    @Test func closeForSettingsWhileClosingWaitsForTheCloseToFinish() async throws {
+        let harness = CoordinatorHarness()
+        let id = try #require(await harness.open())
+        harness.overlay.holdDismiss = true
+        let commit = Task { await harness.send(.commit(.insertAndSubmit), to: id) }
+        await harness.overlay.waitUntilDismissIsHeld()
+
+        var waited = false
+        let close = Task {
+            await harness.coordinator.closeForSettings()
+            waited = true
+        }
+        await harness.send(.openSettings, to: id)
+        await Task.yield()
+        #expect(!waited)
+
+        harness.overlay.completeDismiss(returning: "hello")
+        await commit.value
+        await close.value
+
+        #expect(waited)
+        #expect(harness.log.events == [.present(initialText: ""), .dismiss, .insert("hello", .insertAndSubmit)])
+        #expect(harness.pasteboard.writes.isEmpty)
+        #expect(harness.notices.shown.isEmpty)
+        #expect(harness.coordinator.phase == .idle)
+    }
 }

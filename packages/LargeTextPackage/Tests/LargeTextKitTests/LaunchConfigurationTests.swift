@@ -44,6 +44,27 @@ import Testing
         #expect(configuration == LaunchConfiguration(scenario: .overlayPrefilled, presentOnLaunch: true))
     }
 
+    @Test func presentSettingsOnLaunch() {
+        let configuration = LaunchConfiguration(arguments: [executable, "--scenario", "settings-needs-relaunch", "--present-settings-on-launch"])
+        #expect(configuration == LaunchConfiguration(scenario: .settingsNeedsRelaunch, presentSettingsOnLaunch: true))
+        #expect(configuration.presentOnLaunch == false)
+        #expect(LaunchConfiguration(arguments: [executable]).presentSettingsOnLaunch == false)
+    }
+
+    @Test func settingsHotkeyTakenWithSettingsOnLaunch() {
+        let configuration = LaunchConfiguration(arguments: [executable, "--scenario=settings-hotkey-taken", "--present-settings-on-launch"])
+        #expect(configuration == LaunchConfiguration(scenario: .settingsHotkeyTaken, presentSettingsOnLaunch: true))
+        #expect(configuration.settingsContext == SettingsContext(scenarioName: "settings-hotkey-taken"))
+    }
+
+    @Test func settingsContextNamesTheScenarioAndTheOverriddenKeys() {
+        #expect(LaunchConfiguration().settingsContext == .standard)
+        #expect(LaunchConfiguration(scenario: .firstLaunch).settingsContext == SettingsContext(scenarioName: "first-launch"))
+        let configuration = LaunchConfiguration(arguments: [executable, "--reader-hold-threshold", "450", "--following-unit=line"])
+        #expect(configuration.settingsContext == SettingsContext(launchOverrides: [.readerHoldThreshold, .followingUnit]))
+        #expect(LaunchConfiguration(followingUnit: .line).settingsContext.launchOverrides == [.followingUnit])
+    }
+
     @Test func xcodeNoiseArgumentsAreIgnored() {
         let configuration = LaunchConfiguration(arguments: [
             executable,
@@ -168,6 +189,9 @@ import Testing
         let preferences = environment.preferences
         preferences.readerHoldThreshold = .milliseconds(700)
         preferences.fontSize = FontSize(points: 90)
+        preferences.readerFontSize = FontSize(points: 80)
+        preferences.readerHotkey = nil
+        preferences.hasCompletedFirstLaunch = true
 
         #expect(preferences.readerHoldThreshold == .milliseconds(700))
         #expect(preferences.followingUnit == .line)
@@ -175,6 +199,9 @@ import Testing
         #expect(base.readerHoldThreshold == .milliseconds(300))
         #expect(base.followingUnit == .sentence)
         #expect(base.fontSize == FontSize(points: 90))
+        #expect(base.readerFontSize == FontSize(points: 80))
+        #expect(base.readerHotkey == nil)
+        #expect(base.hasCompletedFirstLaunch)
     }
 
     @MainActor

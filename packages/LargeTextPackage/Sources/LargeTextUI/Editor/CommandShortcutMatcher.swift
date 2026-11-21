@@ -5,6 +5,7 @@ package enum ANSIKeyCode {
     package static let returnKey: UInt16 = 0x24
     package static let keypadEnter: UInt16 = 0x4C
     package static let escape: UInt16 = 0x35
+    package static let space: UInt16 = 0x31
     package static let equal: UInt16 = 0x18
     package static let minus: UInt16 = 0x1B
     package static let zero: UInt16 = 0x1D
@@ -16,12 +17,15 @@ package enum ANSIKeyCode {
     package static let x: UInt16 = 0x07
     package static let c: UInt16 = 0x08
     package static let v: UInt16 = 0x09
+    package static let comma: UInt16 = 0x2B
 }
 
 /// A ⌘-shortcut shared by the editor and the reader, after the shift rules are applied.
 package enum CommandShortcut: Equatable, Sendable {
     case zoom(ZoomStep)
     case edit(StandardEdit)
+    /// ⌘, (Settings plan §3.5).
+    case openSettings
 }
 
 /// Pure ⌘-shortcut matcher shared by `EditorKeyBindings` and `ReaderKeyBindings`, so both handle
@@ -67,6 +71,7 @@ package enum CommandShortcutMatcher {
         case "c": .edit(.copy)
         case "v": .edit(.paste)
         case "a": .edit(.selectAll)
+        case ",": .openSettings
         default: nil
         }
     }
@@ -81,6 +86,7 @@ package enum CommandShortcutMatcher {
         case ANSIKeyCode.c: .edit(.copy)
         case ANSIKeyCode.v: .edit(.paste)
         case ANSIKeyCode.a: .edit(.selectAll)
+        case ANSIKeyCode.comma: .openSettings
         default: nil
         }
     }
@@ -92,7 +98,7 @@ package enum CommandShortcutMatcher {
         case .zoom(.reset): shift ? nil : .zoom(.reset)
         case .zoom: shortcut
         case .edit(.undo): .edit(shift ? .redo : .undo)
-        case .edit: shift ? nil : shortcut
+        case .edit, .openSettings: shift ? nil : shortcut
         }
     }
 }

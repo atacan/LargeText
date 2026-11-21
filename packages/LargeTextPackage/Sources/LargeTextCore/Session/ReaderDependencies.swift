@@ -19,7 +19,8 @@ package struct ReaderDependencies {
     package var keyState: any KeyStateReading
     package var presenter: any ReaderPresenting
     package var notices: any NoticePresenting
-    /// Hotkey, hold threshold and units are read once per session; zoom writes the shared `fontSize`.
+    /// Hotkey, hold threshold, units and `readerFontSize` are read once per session; zoom writes
+    /// `readerFontSize`, never the editor's `fontSize`.
     package var preferences: any PreferencesStore
     /// Checked before a session starts, so a missing Accessibility grant shows a notice instead of a card.
     package var permissions: any PermissionsProviding

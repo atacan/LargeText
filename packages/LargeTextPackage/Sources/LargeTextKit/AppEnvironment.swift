@@ -24,8 +24,11 @@ package struct AppEnvironment {
     package var pointer: any PointerTracking
     package var keyState: any KeyStateReading
     package var readerPresenter: any ReaderPresenting
+    package var settingsPresenter: any SettingsPresenting
+    /// Launch at login. Every scenario swaps in an `InMemoryLoginItem`, so it never registers the app.
+    package var loginItem: any LoginItemControlling
 
-    /// The reader services default to Core fakes, so call sites that predate the reader keep compiling.
+    /// The reader and Settings services default to Core fakes, so call sites that predate them keep compiling.
     @MainActor
     package init(
         hotkeys: any HotkeyRegistering,
@@ -41,7 +44,9 @@ package struct AppEnvironment {
         textReader: any TextReading = StubTextReader(),
         pointer: any PointerTracking = ScriptedPointer(),
         keyState: any KeyStateReading = FixedKeyState(),
-        readerPresenter: any ReaderPresenting = LoggingReaderPresenter()
+        readerPresenter: any ReaderPresenting = LoggingReaderPresenter(),
+        settingsPresenter: any SettingsPresenting = LoggingSettingsPresenter(),
+        loginItem: any LoginItemControlling = InMemoryLoginItem()
     ) {
         self.hotkeys = hotkeys
         self.focus = focus
@@ -57,6 +62,8 @@ package struct AppEnvironment {
         self.pointer = pointer
         self.keyState = keyState
         self.readerPresenter = readerPresenter
+        self.settingsPresenter = settingsPresenter
+        self.loginItem = loginItem
     }
 
     /// The production environment. Side-effect free.
@@ -76,7 +83,9 @@ package struct AppEnvironment {
             pointer: SystemPointerTracker(),
             // Spike R1 decides between `.keyState` and the modifier fallback.
             keyState: SystemKeyStateReader(mode: .keyState),
-            readerPresenter: ReaderWindowController()
+            readerPresenter: ReaderWindowController(),
+            settingsPresenter: SettingsWindowController(),
+            loginItem: SMAppServiceLoginItem()
         )
     }
 
@@ -95,6 +104,7 @@ package struct AppEnvironment {
             focus: focus,
             permissions: permissions,
             inserter: inserter,
+            pasteboard: pasteboard,
             overlay: overlay,
             notices: notices,
             preferences: preferences
@@ -115,6 +125,29 @@ package struct AppEnvironment {
             permissions: permissions,
             sleeper: sleeper,
             timing: timing
+        )
+    }
+
+    /// Assembles the Settings coordinator's dependencies, after any scenario mutation like `coreDependencies()`.
+    /// - Parameters:
+    ///   - shortcuts: the app's `HotkeyBindings`, so Settings rebinds the shortcuts that are registered.
+    ///   - context: from `LaunchConfiguration.settingsContext`.
+    ///   - relaunch: "Relaunch to finish setup".
+    @MainActor
+    package func settingsDependencies(
+        shortcuts: any ShortcutBinding,
+        context: SettingsContext,
+        relaunch: @escaping @MainActor () -> Void
+    ) -> SettingsDependencies {
+        SettingsDependencies(
+            preferences: preferences,
+            permissions: permissions,
+            shortcuts: shortcuts,
+            presenter: settingsPresenter,
+            sleeper: sleeper,
+            loginItem: loginItem,
+            context: context,
+            relaunch: relaunch
         )
     }
 }

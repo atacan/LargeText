@@ -1,6 +1,5 @@
 import AppKit
 import LargeTextCore
-import os
 
 /// The menu-bar item (§2.6, §2.7). Driven by Kit: `install()` in `start()`, `remove()` in `stop()`.
 /// The menu is rebuilt from `StatusMenuModel` every time it opens, so permissions are always fresh.
@@ -16,6 +15,7 @@ package final class StatusItemController: NSObject, NSMenuDelegate {
     private let permissions: any PermissionsProviding
     private let onOpenEditor: @MainActor () -> Void
     private let onReadTextUnderPointer: (@MainActor () -> Void)?
+    private let onOpenSettings: (@MainActor () -> Void)?
     private var statusItem: NSStatusItem?
 
     package init(
@@ -23,13 +23,15 @@ package final class StatusItemController: NSObject, NSMenuDelegate {
         readerHotkey: KeyCombo? = nil,
         permissions: any PermissionsProviding,
         onOpenEditor: @escaping @MainActor () -> Void,
-        onReadTextUnderPointer: (@MainActor () -> Void)? = nil
+        onReadTextUnderPointer: (@MainActor () -> Void)? = nil,
+        onOpenSettings: (@MainActor () -> Void)? = nil
     ) {
         self.hotkey = hotkey
         self.readerHotkey = readerHotkey
         self.permissions = permissions
         self.onOpenEditor = onOpenEditor
         self.onReadTextUnderPointer = onReadTextUnderPointer
+        self.onOpenSettings = onOpenSettings
         super.init()
     }
 
@@ -89,11 +91,31 @@ package final class StatusItemController: NSObject, NSMenuDelegate {
             menuItem.isEnabled = false
             return menuItem
         case .action(let title, let action):
-            let menuItem = NSMenuItem(title: title, action: selector(for: action), keyEquivalent: "")
-            if action == .quit { menuItem.keyEquivalent = "q" }
+            let menuItem = NSMenuItem(title: title, action: selector(for: action), keyEquivalent: StatusMenuModel.keyEquivalent(for: action))
             menuItem.target = self
             menuItem.isEnabled = true
             return menuItem
+        }
+    }
+
+    /// What choosing a menu item does.
+    package func perform(_ action: StatusMenuAction) {
+        switch action {
+        case .openEditor:
+            onOpenEditor()
+        case .readTextUnderPointer:
+            onReadTextUnderPointer?()
+        case .openSettings:
+            onOpenSettings?()
+        case .grantAccess:
+            // D6, as in Settings: the request adds LargeText to the Accessibility list (and prompts while it
+            // isn't trusted); the pane then shows it there.
+            permissions.requestAccessibility()
+            permissions.openSystemSettings()
+        case .relaunch:
+            AppRelauncher.relaunch(onFailure: { [permissions] in permissions.openSystemSettings() })
+        case .quit:
+            NSApp.terminate(nil)
         }
     }
 
@@ -101,49 +123,17 @@ package final class StatusItemController: NSObject, NSMenuDelegate {
         switch action {
         case .openEditor: #selector(openEditor(_:))
         case .readTextUnderPointer: #selector(readTextUnderPointer(_:))
+        case .openSettings: #selector(openSettings(_:))
         case .grantAccess: #selector(grantAccess(_:))
         case .relaunch: #selector(relaunch(_:))
         case .quit: #selector(quit(_:))
         }
     }
 
-    @objc private func openEditor(_ sender: Any?) {
-        onOpenEditor()
-    }
-
-    @objc private func readTextUnderPointer(_ sender: Any?) {
-        onReadTextUnderPointer?()
-    }
-
-    @objc private func grantAccess(_ sender: Any?) {
-        permissions.openSystemSettings()
-    }
-
-    /// Waits for this process to exit, then reopens the app bundle, so the new instance can register
-    /// the hotkey and pick up the event-posting permission (spike 0i).
-    @objc private func relaunch(_ sender: Any?) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = [
-            "-c",
-            // Gives up after ~10 s in case termination is ever cancelled.
-            """
-            i=0; while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do \
-            [ $i -ge 100 ] && exit 1; i=$((i+1)); sleep 0.1; done; /usr/bin/open "$0"
-            """,
-            Bundle.main.bundlePath,
-        ]
-        do {
-            try process.run()
-        } catch {
-            Logger.ui.error("Relaunch failed: \(error.localizedDescription, privacy: .public)")
-            permissions.openSystemSettings()
-            return
-        }
-        NSApp.terminate(nil)
-    }
-
-    @objc private func quit(_ sender: Any?) {
-        NSApp.terminate(nil)
-    }
+    @objc private func openEditor(_ sender: Any?) { perform(.openEditor) }
+    @objc private func readTextUnderPointer(_ sender: Any?) { perform(.readTextUnderPointer) }
+    @objc private func openSettings(_ sender: Any?) { perform(.openSettings) }
+    @objc private func grantAccess(_ sender: Any?) { perform(.grantAccess) }
+    @objc private func relaunch(_ sender: Any?) { perform(.relaunch) }
+    @objc private func quit(_ sender: Any?) { perform(.quit) }
 }
