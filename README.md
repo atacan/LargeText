@@ -65,6 +65,7 @@ packages/LargeTextPackage/   Swift package "LargeText" (all the code)
   Sources/LargeTextKit/        composition root, scenarios, public entry point
   Tests/                       Swift Testing suites + LargeTextTestSupport (spies)
 xcode/LargeText/             host AppKit app: main.swift calls LargeTextApplication.run()
+design/icons/                app icon master, the script that builds the icon set, other icon options
 docs/manual-testing.md       hands-on checklist, spike items, logging & reset commands
 docs/releasing.md            how a merged pull request becomes a release; one-time setup
 scripts/release/             the release steps (build & notarize, appcast, GitHub release, cask)
