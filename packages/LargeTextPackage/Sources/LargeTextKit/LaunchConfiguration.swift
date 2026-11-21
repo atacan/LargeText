@@ -2,13 +2,15 @@ import Foundation
 import LargeTextCore
 import os
 
-/// How the app was launched: an optional scenario, whether to open the editor or the reader right away, and
-/// the reader tunables to try without a settings UI.
+/// How the app was launched: an optional scenario, whether to open the editor, the reader or Settings right
+/// away, and the reader tunables to try for one run.
 public struct LaunchConfiguration: Equatable, Sendable {
     /// `--scenario <name>` or `--scenario=<name>`; unknown names are logged and ignored.
     package var scenario: Scenario?
     /// `--present-on-launch` → the editor opens after start.
     package var presentOnLaunch: Bool
+    /// `--present-settings-on-launch` → the Settings window opens after start.
+    package var presentSettingsOnLaunch: Bool
     /// `--present-reader-on-launch=<state>` → a scripted reader gesture after start. Implies `reader-stub`.
     package var presentReaderOnLaunch: ReaderLaunchState?
     /// `--reader-hold-threshold <ms>`: overrides the preference in memory only.
@@ -27,6 +29,7 @@ public struct LaunchConfiguration: Equatable, Sendable {
     package init(
         scenario: Scenario? = nil,
         presentOnLaunch: Bool = false,
+        presentSettingsOnLaunch: Bool = false,
         presentReaderOnLaunch: ReaderLaunchState? = nil,
         readerHoldThreshold: Duration? = nil,
         followingUnit: ReadGranularity? = nil,
@@ -37,6 +40,7 @@ public struct LaunchConfiguration: Equatable, Sendable {
         }
         self.scenario = presentReaderOnLaunch == nil ? scenario : .readerStub
         self.presentOnLaunch = presentOnLaunch
+        self.presentSettingsOnLaunch = presentSettingsOnLaunch
         self.presentReaderOnLaunch = presentReaderOnLaunch
         self.readerHoldThreshold = readerHoldThreshold
         self.followingUnit = followingUnit
@@ -53,6 +57,8 @@ public struct LaunchConfiguration: Equatable, Sendable {
             let argument = arguments[index]
             if argument == "--present-on-launch" {
                 parsed.presentOnLaunch = true
+            } else if argument == "--present-settings-on-launch" {
+                parsed.presentSettingsOnLaunch = true
             } else if let (option, inlineValue) = ValueOption.match(argument) {
                 var value = inlineValue
                 if value == nil {
@@ -73,6 +79,7 @@ public struct LaunchConfiguration: Equatable, Sendable {
         self.init(
             scenario: parsed.scenario,
             presentOnLaunch: parsed.presentOnLaunch,
+            presentSettingsOnLaunch: parsed.presentSettingsOnLaunch,
             presentReaderOnLaunch: parsed.presentReaderOnLaunch,
             readerHoldThreshold: parsed.readerHoldThreshold,
             followingUnit: parsed.followingUnit,
@@ -83,6 +90,15 @@ public struct LaunchConfiguration: Equatable, Sendable {
     /// The reader timers: the `following` launch state holds its session open on purpose, so it has no cap.
     package var readerTiming: ReaderTiming {
         presentReaderOnLaunch == .following ? ReaderTiming(maxFollowDuration: nil) : .standard
+    }
+
+    /// What the Settings window says about this run: the scenario banner and a note on each preference set on
+    /// the command line (Settings plan §3.8).
+    package var settingsContext: SettingsContext {
+        var overrides: Set<PreferenceKey> = []
+        if readerHoldThreshold != nil { overrides.insert(.readerHoldThreshold) }
+        if followingUnit != nil { overrides.insert(.followingUnit) }
+        return SettingsContext(scenarioName: scenario?.rawValue, launchOverrides: overrides)
     }
 
     /// Mutates the environment before assembly: the scenario, then the reader launch state, the stub delay

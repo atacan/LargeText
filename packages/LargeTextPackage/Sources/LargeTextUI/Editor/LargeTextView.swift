@@ -103,7 +103,7 @@ package final class LargeTextView: NSTextView {
         switch action {
         case .newline: insertNewlineIgnoringFieldEditor(nil)
         case .standardEdit(let edit): perform(edit)
-        case .commit, .cancel, .zoom: break
+        case .commit, .cancel, .zoom, .openSettings: break
         }
     }
 

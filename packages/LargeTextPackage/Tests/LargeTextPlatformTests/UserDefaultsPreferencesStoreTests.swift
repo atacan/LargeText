@@ -20,6 +20,8 @@ import Testing
             #expect(store.readerHoldThreshold == .milliseconds(300))
             #expect(store.followingUnit == .sentence)
             #expect(store.pinnedUnit == .paragraph)
+            #expect(store.readerFontSize == FontSize(points: 64))
+            #expect(store.hasCompletedFirstLaunch == false)
         }
     }
 
@@ -32,6 +34,8 @@ import Testing
             store.readerHoldThreshold = .milliseconds(250)
             store.followingUnit = .line
             store.pinnedUnit = .sentence
+            store.readerFontSize = FontSize(points: 48)
+            store.hasCompletedFirstLaunch = true
 
             let reread = UserDefaultsPreferencesStore(defaults: defaults)
             #expect(reread.fontSize == FontSize(points: 96))
@@ -41,6 +45,8 @@ import Testing
             #expect(reread.readerHoldThreshold == .milliseconds(250))
             #expect(reread.followingUnit == .line)
             #expect(reread.pinnedUnit == .sentence)
+            #expect(reread.readerFontSize == FontSize(points: 48))
+            #expect(reread.hasCompletedFirstLaunch == true)
 
             store.clipboardRestore = .none
             #expect(reread.clipboardRestore == .none)
@@ -134,6 +140,69 @@ import Testing
             defaults.set(["keyCode": 0x23, "modifiers": 5], forKey: "LargeText.hotkey")
             #expect(store.fontSize == FontSize(points: 120))
             #expect(store.hotkey == KeyCombo(keyCode: 0x23, modifiers: [.command, .control]))
+        }
+    }
+
+    // MARK: - Reader off
+
+    @Test func turningTheReaderOffStoresOffAndSurvivesARelaunch() throws {
+        try withDefaults { defaults, store in
+            store.readerHotkey = nil
+
+            #expect(defaults.string(forKey: "LargeText.readerHotkey") == "off")
+            #expect(UserDefaultsPreferencesStore(defaults: defaults).readerHotkey == nil)
+
+            store.readerHotkey = .readerDefault
+            #expect(store.readerHotkey == .readerDefault)
+        }
+    }
+
+    /// Mirrors `defaults write <bundle id> LargeText.readerHotkey off`; other strings are still malformed.
+    @Test func handWrittenOffString() throws {
+        try withDefaults { defaults, store in
+            defaults.set(" OFF\n", forKey: "LargeText.readerHotkey")
+            #expect(store.readerHotkey == nil)
+            defaults.set("none", forKey: "LargeText.readerHotkey")
+            #expect(store.readerHotkey == .readerDefault)
+        }
+    }
+
+    // MARK: - Reader font size
+
+    /// Existing users keep the size they had: until the reader zooms, it follows the editor.
+    @Test func readerFontSizeFollowsFontSizeUntilWritten() throws {
+        try withDefaults { defaults, store in
+            store.fontSize = FontSize(points: 96)
+            #expect(store.readerFontSize == FontSize(points: 96))
+            #expect(defaults.object(forKey: "LargeText.readerFontSize") == nil)
+
+            store.readerFontSize = FontSize(points: 72)
+            store.fontSize = FontSize(points: 120)
+            #expect(store.readerFontSize == FontSize(points: 72))
+            #expect(defaults.double(forKey: "LargeText.readerFontSize") == 72)
+        }
+    }
+
+    @Test func malformedReaderFontSizeFollowsFontSize() throws {
+        try withDefaults { defaults, store in
+            defaults.set(110, forKey: "LargeText.fontSize")
+            defaults.set(-5.0, forKey: "LargeText.readerFontSize")
+            #expect(store.readerFontSize == FontSize(points: 110))
+            defaults.set("big", forKey: "LargeText.readerFontSize")
+            #expect(store.readerFontSize == FontSize(points: 110))
+            defaults.set(80, forKey: "LargeText.readerFontSize")
+            #expect(store.readerFontSize == FontSize(points: 80))
+        }
+    }
+
+    // MARK: - First launch
+
+    @Test func hasCompletedFirstLaunchUsesAPrefixedBool() throws {
+        try withDefaults { defaults, store in
+            store.hasCompletedFirstLaunch = true
+            #expect(defaults.bool(forKey: "LargeText.hasCompletedFirstLaunch"))
+            defaults.set(false, forKey: "LargeText.hasCompletedFirstLaunch")
+            #expect(store.hasCompletedFirstLaunch == false)
         }
     }
 }

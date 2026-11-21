@@ -21,6 +21,10 @@ import Testing
         #expect(environment.pointer is SystemPointerTracker)
         #expect(environment.keyState is SystemKeyStateReader)
         #expect(environment.readerPresenter is ReaderWindowController)
+        #expect(environment.settingsPresenter is SettingsWindowController)
+        #expect(environment.settingsPresenter.isVisible == false)
+        // `SMAppService.mainApp` is only touched by `status` / `setEnabled`, never here.
+        #expect(environment.loginItem is SMAppServiceLoginItem)
     }
 
     @Test func readerDependenciesAreAssembledFromTheEnvironment() {
@@ -70,5 +74,50 @@ import Testing
         #expect(environment.pointer is ScriptedPointer)
         #expect(environment.keyState is FixedKeyState)
         #expect(environment.readerPresenter is LoggingReaderPresenter)
+    }
+
+    @Test func settingsDependenciesAreAssembledFromTheEnvironment() {
+        let preferences = InMemoryPreferencesStore()
+        let presenter = SpySettingsPresenter()
+        let shortcuts = SpyShortcutBinding()
+        let loginItem = SpyLoginItem()
+        let environment = AppEnvironment(
+            hotkeys: SpyHotkeys(),
+            focus: StubFocusCapturer(target: FocusTarget(application: nil)),
+            permissions: FixedPermissions(.allGranted),
+            pasteboard: FakePasteboard(),
+            keystrokes: RecordingKeystrokes(),
+            preferences: preferences,
+            sleeper: InstantSleeper(),
+            overlay: SpyOverlay(),
+            notices: SpyNotices(),
+            settingsPresenter: presenter,
+            loginItem: loginItem
+        )
+        let context = SettingsContext(scenarioName: "first-launch")
+
+        let dependencies = environment.settingsDependencies(shortcuts: shortcuts, context: context, relaunch: {})
+
+        #expect(dependencies.preferences === preferences)
+        #expect(dependencies.presenter === presenter)
+        #expect(dependencies.shortcuts === shortcuts)
+        #expect(dependencies.context == context)
+        #expect(dependencies.loginItem === loginItem)
+    }
+
+    @Test func settingsPresenterDefaultsToTheLoggingOne() {
+        let environment = AppEnvironment(
+            hotkeys: SpyHotkeys(),
+            focus: StubFocusCapturer(target: FocusTarget(application: nil)),
+            permissions: FixedPermissions(.allGranted),
+            pasteboard: FakePasteboard(),
+            keystrokes: RecordingKeystrokes(),
+            preferences: InMemoryPreferencesStore(),
+            sleeper: InstantSleeper(),
+            overlay: SpyOverlay(),
+            notices: SpyNotices()
+        )
+        #expect(environment.settingsPresenter is LoggingSettingsPresenter)
+        #expect(environment.loginItem is InMemoryLoginItem)
     }
 }

@@ -180,6 +180,7 @@ package final class EditorViewController: NSViewController, NSTextViewDelegate {
         case .commit(let mode): onIntent?(.commit(mode))
         case .cancel: onIntent?(.cancel(.userCancelled))
         case .zoom(let step): onIntent?(.zoom(step))
+        case .openSettings: onIntent?(.openSettings)
         case .newline: textView.insertNewlineIgnoringFieldEditor(nil)
         case .standardEdit(let edit): textView.perform(edit)
         }

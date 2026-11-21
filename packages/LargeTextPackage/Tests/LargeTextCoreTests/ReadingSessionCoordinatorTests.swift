@@ -435,19 +435,53 @@ struct ReadingSessionCoordinatorTests {
 
     // MARK: - Intents
 
-    @Test func zoomPersistsTheSharedFontSize() async throws {
+    @Test func zoomPersistsTheReaderFontSizeAndLeavesTheEditorsAlone() async throws {
         let harness = ReaderHarness()
-        harness.preferences.fontSize = FontSize(points: 80)
+        harness.preferences.readerFontSize = FontSize(points: 80)
         await harness.pressAndWaitForRead()
         await harness.complete(0, with: ReaderFixtures.text("A"))
         harness.release(at: 10.2)
 
         harness.send(.zoom(.bigger))
 
-        #expect(harness.preferences.fontSize == FontSize(points: 88))
+        #expect(harness.preferences.readerFontSize == FontSize(points: 88))
+        #expect(harness.preferences.fontSize == FontSizePolicy.default)
         #expect(harness.presenter.updates == [
             Shown(content: .text("A", scrollToUTF16: nil), chrome: ReaderFixtures.chrome(.pinned, fontSize: 88)),
         ])
+    }
+
+    @Test func sessionStartsAtTheReaderFontSize() async {
+        let harness = ReaderHarness()
+        harness.preferences.fontSize = FontSize(points: 120)
+        harness.preferences.readerFontSize = FontSize(points: 96)
+        await harness.pressAndWaitForRead()
+        await harness.complete(0, with: ReaderFixtures.text("A"))
+
+        #expect(harness.presenter.presented.map(\.chrome.fontSize) == [FontSize(points: 96)])
+    }
+
+    @Test func unsetReaderFontSizeFollowsTheEditorsAndIsClamped() async {
+        let harness = ReaderHarness()
+        harness.preferences.fontSize = FontSize(points: 1000)
+        await harness.pressAndWaitForRead()
+        await harness.complete(0, with: ReaderFixtures.text("A"))
+
+        #expect(harness.presenter.presented.map(\.chrome.fontSize) == [FontSize(points: 200)])
+    }
+
+    @Test func pressIsIgnoredWhileTheReaderShortcutIsOff() async {
+        let harness = ReaderHarness()
+        harness.preferences.readerHotkey = nil
+
+        harness.press()
+        harness.release(at: 10.1)
+        await harness.settle()
+
+        #expect(harness.coordinator.isIdle)
+        #expect(harness.reader.calls.isEmpty)
+        #expect(harness.presenter.presented.isEmpty)
+        #expect(harness.notices.shown.isEmpty)
     }
 
     @Test func closeIntentClosesAndStaleSessionIntentsAreIgnored() async throws {
@@ -465,7 +499,32 @@ struct ReadingSessionCoordinatorTests {
         harness.send(.zoom(.bigger), to: first)
 
         #expect(harness.coordinator.phase == .following)
-        #expect(harness.preferences.fontSize == FontSizePolicy.default)
+        #expect(harness.preferences.readerFontSize == FontSizePolicy.default)
+        #expect(harness.presenter.dismissCount == 1)
+    }
+
+    /// Settings plan §3.5: the card starts closing before Kit is asked to open Settings, and a stale ⌘, does
+    /// nothing.
+    @Test func openSettingsClosesThePinnedCardThenAsksForSettings() async throws {
+        let harness = ReaderHarness()
+        var phaseWhenAsked: ReaderGesture.Phase?
+        var asked = 0
+        harness.coordinator.onOpenSettings = {
+            asked += 1
+            phaseWhenAsked = harness.coordinator.phase
+        }
+        await harness.pressAndWaitForRead(at: 10)
+        harness.release(at: 10.1)
+        await harness.complete(0, with: ReaderFixtures.text("A"))
+        let id = try #require(harness.presenter.lastSessionID)
+
+        harness.send(.openSettings)
+        #expect(phaseWhenAsked == .closing)
+        await harness.coordinator.close()
+        harness.send(.openSettings, to: id)
+
+        #expect(asked == 1)
+        #expect(harness.coordinator.isIdle)
         #expect(harness.presenter.dismissCount == 1)
     }
 

@@ -14,6 +14,8 @@ package final class EditingSessionCoordinator {
     package private(set) var phase: Phase = .idle
     /// The reader shortcut is ignored unless this is true (§4.8).
     package var isIdle: Bool { phase == .idle }
+    /// Called after ⌘, has closed the editor; Kit opens Settings (`AppController.openSettings()`).
+    package var onOpenSettings: (@MainActor () -> Void)?
 
     private let dependencies: CoreDependencies
     private var session: EditingSession?
@@ -21,6 +23,8 @@ package final class EditingSessionCoordinator {
     private var chrome: OverlayChrome?
     /// Last cancelled non-blank text, in memory only.
     private var draft: String?
+    /// `closeForSettings()` callers waiting for a closing session to finish; resumed in `finish`.
+    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
     package init(dependencies: CoreDependencies) {
         self.dependencies = dependencies
@@ -51,6 +55,25 @@ package final class EditingSessionCoordinator {
             await cancel(session, reason: reason)
         case .zoom(let step):
             zoom(step)
+        case .openSettings:
+            await closeForSettings(session)
+            onOpenSettings?()
+        }
+    }
+
+    /// Closes the editor before Settings opens, from ⌘, or from Kit (the status menu while the editor is
+    /// open). Text in the editor is copied, so it isn't lost behind the window. Does nothing when idle. A
+    /// session that is already closing (a ⌘↩ commit still inserting, say) is awaited, so Settings doesn't
+    /// activate LargeText while the paste is still on its way to the target app.
+    package func closeForSettings() async {
+        switch phase {
+        case .idle:
+            return
+        case .editing(let id):
+            guard let session, session.id == id else { return }
+            await closeForSettings(session)
+        case .closing:
+            await waitUntilIdle()
         }
     }
 
@@ -125,6 +148,20 @@ package final class EditingSessionCoordinator {
         finish(session)
     }
 
+    /// Like `cancel`, so the text is also kept as the draft, but non-empty text is copied as well, with the
+    /// "Copied — press ⌘V" HUD (Settings plan §3.5).
+    private func closeForSettings(_ session: EditingSession) async {
+        phase = .closing(sessionID: session.id)
+        let text = await dependencies.overlay.dismiss()
+        draft = text.isEmpty ? nil : text
+        if !text.isEmpty {
+            _ = ClipboardWriter(pasteboard: dependencies.pasteboard).copy(text, reason: .settingsOpened)
+            dependencies.notices.show(.copiedToClipboard(.settingsOpened))
+        }
+        Logger.core.info("Session \(session.id): closed for Settings (\(text.isEmpty ? "empty" : "copied", privacy: .public))")
+        finish(session)
+    }
+
     private func zoom(_ step: ZoomStep) {
         guard var chrome else { return }
         chrome.fontSize = FontSizePolicy.apply(step, to: chrome.fontSize)
@@ -138,5 +175,13 @@ package final class EditingSessionCoordinator {
         self.session = nil
         chrome = nil
         phase = .idle
+        let waiters = idleWaiters
+        idleWaiters = []
+        waiters.forEach { $0.resume() }
+    }
+
+    private func waitUntilIdle() async {
+        guard phase != .idle else { return }
+        await withCheckedContinuation { idleWaiters.append($0) }
     }
 }

@@ -68,7 +68,7 @@ package final class ReaderTextView: NSTextView {
         perform(action)
     }
 
-    /// The package never installs `NSApp.mainMenu`, so ⌘-shortcuts must be handled here.
+    /// ⌘-shortcuts are handled here, before `NSApp.mainMenu` (`MainMenuBuilder`) is consulted.
     override package func performKeyEquivalent(with event: NSEvent) -> Bool {
         // AppKit calls this on every view in the window; only the first responder may act.
         guard window?.firstResponder === self else { return false }
@@ -83,7 +83,7 @@ package final class ReaderTextView: NSTextView {
         switch action {
         case .copy: copy(nil)
         case .selectAll: selectAll(nil)
-        case .close, .zoom: onAction?(action)
+        case .close, .zoom, .openSettings: onAction?(action)
         }
     }
 }

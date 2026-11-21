@@ -24,19 +24,28 @@ package enum StatusMenuModel {
         for combo in hotkeyUnavailable {
             items.append(.info(title: "Shortcut \(KeyComboFormatter.string(for: combo)) unavailable"))
         }
+        items.append(.action(title: "Settings…", action: .openSettings))
         items.append(.separator)
         items.append(.action(title: "Quit LargeText", action: .quit))
         return items
     }
 
+    /// With ⌘, shown in the menu and active while it is open.
+    package static func keyEquivalent(for action: StatusMenuAction) -> String {
+        switch action {
+        case .openSettings: ","
+        case .quit: "q"
+        case .openEditor, .readTextUnderPointer, .grantAccess, .relaunch: ""
+        }
+    }
+
     package static func permissionItem(_ permissions: Permissions) -> StatusMenuItem {
-        switch (permissions.accessibility, permissions.eventPosting) {
-        case (.granted, .granted):
+        switch permissions.setup {
+        case .granted:
             .info(title: "Accessibility: Granted ✓")
-        case (.granted, .denied):
-            // Spike 0i: posting may only start working after a relaunch.
+        case .needsRelaunch:
             .action(title: "Relaunch to finish setup", action: .relaunch)
-        case (.denied, _):
+        case .needsGrant:
             .action(title: "Grant Access…", action: .grantAccess)
         }
     }

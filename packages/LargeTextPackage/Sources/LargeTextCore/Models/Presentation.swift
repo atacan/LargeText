@@ -54,6 +54,8 @@ package struct OverlayIntent: Equatable, Sendable {
         /// ⎋ and backdrop click → `.userCancelled`; resign key → `.lostFocus`.
         case cancel(CancelReason)
         case zoom(ZoomStep)
+        /// ⌘, (Settings plan §3.5): closes the editor, keeping any text on the clipboard, then opens Settings.
+        case openSettings
     }
 
     package let sessionID: UUID

@@ -1,13 +1,16 @@
 import CoreGraphics
 import Foundation
 import LargeTextCore
+import LargeTextUI
 
 /// Launch-time states for hands-on testing (`--scenario <rawValue>`), compiled unconditionally (§3.2).
 ///
 /// A scenario only mutates the `AppEnvironment` before assembly; `AppController` additionally starts the
 /// `ReaderProbe` for `reader-probe`. Every scenario swaps in an `InMemoryPreferencesStore`, so zooming or
-/// other preference writes never touch the real defaults. Kit-owned responsibilities (activation policy,
-/// status item, hotkeys, permission request) stay live.
+/// other preference writes never touch the real defaults, and an `InMemoryLoginItem`, so the Settings toggle
+/// never registers the app for launch at login. Its first launch is already done, so Settings only
+/// opens by itself in `first-launch`. Kit-owned responsibilities (activation policy,
+/// status item, hotkeys (except in `settings-hotkey-taken`), permission request) stay live.
 ///
 /// Note: with `inserterOverride` set, the overlay's header hints still reflect the real `InsertionRoute`.
 package enum Scenario: String, CaseIterable, Sendable {
@@ -33,10 +36,26 @@ package enum Scenario: String, CaseIterable, Sendable {
     /// Everything live. `AppController` runs `ReaderProbe`, which logs what the element under the pointer
     /// exposes once per second: the harness for spikes R2–R6 and R8. The reader shortcut works as usual.
     case readerProbe = "reader-probe"
+    /// Permissions: Accessibility granted, event posting denied (spike 0i), so the status menu and Settings
+    /// offer "Relaunch to finish setup". Use with `--present-settings-on-launch`.
+    case settingsNeedsRelaunch = "settings-needs-relaunch"
+    /// Preferences: a first launch (`hasCompletedFirstLaunch == false`). Permissions:
+    /// `FixedPermissions(.allDenied)`, so Settings opens at launch (Settings plan §3.6); the system prompt is
+    /// skipped because the permissions are fixed.
+    case firstLaunch = "first-launch"
+    /// Hotkeys: `RefusingHotkeyRegistrar` around the live registrar, refusing ⌃⌥⌘E and ⌃⌥⌘Y
+    /// (`takenCombos`) as if another app held them. Recording either in Settings shows "couldn't be registered"
+    /// and keeps the saved shortcut working. Everything else is live. Use with `--present-settings-on-launch`.
+    case settingsHotkeyTaken = "settings-hotkey-taken"
 
     @MainActor
     package func apply(to environment: inout AppEnvironment) {
-        environment.preferences = InMemoryPreferencesStore()
+        environment.preferences = InMemoryPreferencesStore(hasCompletedFirstLaunch: self != .firstLaunch)
+        environment.loginItem = InMemoryLoginItem()
+        if environment.settingsPresenter is SettingsWindowController {
+            // Not even the window frame is saved.
+            environment.settingsPresenter = SettingsWindowController(frameAutosaveName: nil)
+        }
         switch self {
         case .overlayPrefilled:
             environment.focus = StubFocusCapturer(target: Self.safariTarget(kind: .singleLineText, selection: "https://www.apple.com"))
@@ -55,8 +74,20 @@ package enum Scenario: String, CaseIterable, Sendable {
             environment.permissions = FixedPermissions(.allDenied)
         case .readerProbe:
             break
+        case .settingsNeedsRelaunch:
+            environment.permissions = FixedPermissions(Permissions(accessibility: .granted, eventPosting: .denied))
+        case .firstLaunch:
+            environment.permissions = FixedPermissions(.allDenied)
+        case .settingsHotkeyTaken:
+            environment.hotkeys = RefusingHotkeyRegistrar(wrapping: environment.hotkeys, refusing: Self.takenCombos)
         }
     }
+
+    /// ⌃⌥⌘E and ⌃⌥⌘Y: refused by `settings-hotkey-taken`.
+    static let takenCombos: Set<KeyCombo> = [
+        KeyCombo(keyCode: 0x0E, modifiers: [.control, .option, .command]),
+        KeyCombo(keyCode: 0x10, modifiers: [.control, .option, .command]),
+    ]
 
     // MARK: - Reader stub
 

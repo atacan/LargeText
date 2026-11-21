@@ -5,6 +5,8 @@ package enum InsertionFallbackReason: Equatable, Sendable {
     case noEditableTarget
     case targetChanged
     case modifiersHeld
+    /// ⌘, closed an editor with text in it: the text is copied so opening Settings doesn't lose it.
+    case settingsOpened
 }
 
 package enum InsertionOutcome: Equatable, Sendable {

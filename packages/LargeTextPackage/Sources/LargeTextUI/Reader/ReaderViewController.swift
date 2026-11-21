@@ -258,6 +258,7 @@ package final class ReaderViewController: NSViewController {
         switch action {
         case .close: onIntent?(.close(.userCancelled))
         case .zoom(let step): onIntent?(.zoom(step))
+        case .openSettings: onIntent?(.openSettings)
         case .copy, .selectAll: textView.perform(action)
         }
     }

@@ -1,7 +1,9 @@
 import Foundation
 import LargeTextCore
+import LargeTextPlatform
 import LargeTextTestSupport
 import Testing
+import LargeTextUI
 @testable import LargeTextKit
 
 /// Behavioural assembly tests: scenario mutation → `coreDependencies()` → a real coordinator (§4).
@@ -54,7 +56,8 @@ import Testing
     @Test func rawValuesRoundTrip() {
         #expect(Scenario.allCases.map(\.rawValue) == [
             "overlay-prefilled", "no-editable-target", "permission-missing", "logging-insertion",
-            "reader-stub", "reader-no-accessibility", "reader-probe",
+            "reader-stub", "reader-no-accessibility", "reader-probe", "settings-needs-relaunch", "first-launch",
+            "settings-hotkey-taken",
         ])
         for scenario in Scenario.allCases {
             #expect(Scenario(rawValue: scenario.rawValue) == scenario)
@@ -67,7 +70,10 @@ import Testing
         scenario.apply(to: &environment)
         #expect(environment.preferences is InMemoryPreferencesStore)
         #expect(environment.preferences !== preferences)
-        #expect(environment.hotkeys === hotkeys)
+        // settings-hotkey-taken wraps the live registrar instead of replacing it.
+        let registrar = (environment.hotkeys as? RefusingHotkeyRegistrar)?.wrapped ?? environment.hotkeys
+        #expect(registrar === hotkeys)
+        #expect((environment.hotkeys is RefusingHotkeyRegistrar) == (scenario == .settingsHotkeyTaken))
         #expect(environment.overlay === overlay)
         #expect(environment.notices === notices)
         #expect(environment.pasteboard === pasteboard)
@@ -226,5 +232,102 @@ import Testing
         #expect(environment.permissions === permissions)
         #expect(environment.inserterOverride == nil)
         #expect(type(of: environment.textReader) == type(of: reader))
+    }
+
+    // MARK: - Settings
+
+    /// The live login item would register the real bundle; every scenario swaps in one kept in memory.
+    @Test(arguments: Scenario.allCases)
+    func everyScenarioSwapsInAnInMemoryLoginItem(_ scenario: Scenario) throws {
+        var environment = environment()
+        environment.loginItem = SMAppServiceLoginItem()
+        scenario.apply(to: &environment)
+        let loginItem = try #require(environment.loginItem as? InMemoryLoginItem)
+        #expect(loginItem.status == .notRegistered)
+
+        let settings = SettingsCoordinator(dependencies: environment.settingsDependencies(
+            shortcuts: SpyShortcutBinding(),
+            context: SettingsContext(scenarioName: scenario.rawValue),
+            relaunch: {}
+        ))
+        settings.handle(.setLaunchAtLogin(true))
+        #expect(loginItem.status == .enabled)
+    }
+
+    /// Only `first-launch` opens Settings by itself (Settings plan §3.6).
+    @Test(arguments: Scenario.allCases)
+    func onlyFirstLaunchIsAFirstLaunch(_ scenario: Scenario) {
+        var environment = environment()
+        scenario.apply(to: &environment)
+        #expect(environment.preferences.hasCompletedFirstLaunch == (scenario != .firstLaunch))
+    }
+
+    @Test func settingsNeedsRelaunchGrantsAccessibilityButNotEventPosting() {
+        var environment = environment()
+        Scenario.settingsNeedsRelaunch.apply(to: &environment)
+        #expect(environment.permissions.current.setup == .needsRelaunch)
+        #expect(environment.focus === focus)
+        #expect(environment.inserterOverride == nil)
+    }
+
+    @Test func firstLaunchDeniesAccess() {
+        var environment = environment()
+        Scenario.firstLaunch.apply(to: &environment)
+        #expect(environment.permissions.current == .allDenied)
+        #expect(environment.permissions is FixedPermissions)
+    }
+
+    @Test func settingsHotkeyTakenRefusesItsCombosWhenRecordedAndKeepsTheSavedOnes() throws {
+        var environment = environment()
+        Scenario.settingsHotkeyTaken.apply(to: &environment)
+        let registrar = try #require(environment.hotkeys as? RefusingHotkeyRegistrar)
+        #expect(registrar.wrapped === hotkeys)
+        let e = KeyCombo(keyCode: 0x0E, modifiers: [.control, .option, .command])    // ⌃⌥⌘E
+        let y = KeyCombo(keyCode: 0x10, modifiers: [.control, .option, .command])    // ⌃⌥⌘Y
+        #expect(registrar.refusing == [e, y])
+        #expect(environment.permissions === permissions)
+        #expect(environment.focus === focus)
+        #expect(environment.inserterOverride == nil)
+
+        let preferences = environment.preferences
+        let bindings = HotkeyBindings(hotkeys: environment.hotkeys, onEditor: {}, onReader: { _ in })
+        // The defaults aren't taken, so the launch-time registration succeeds.
+        #expect(bindings.apply(editor: preferences.hotkey, reader: preferences.readerHotkey).isEmpty)
+        // The default presenter is never visible, so the permission refresh ends after one wait.
+        let settings = SettingsCoordinator(dependencies: environment.settingsDependencies(
+            shortcuts: bindings,
+            context: SettingsContext(scenarioName: Scenario.settingsHotkeyTaken.rawValue),
+            relaunch: {}
+        ))
+        settings.show()
+
+        for (slot, taken) in [(ShortcutSlot.editor, e), (.reader, y), (.editor, y)] {
+            settings.handle(.beginRecording(slot))
+            #expect(hotkeys.live.isEmpty)
+            settings.handle(.record(slot, taken))
+
+            #expect(settings.state[slot].problem == .unavailable)
+            #expect(!settings.state[slot].isRecording)
+            #expect(preferences.hotkey == .default)
+            #expect(preferences.readerHotkey == .readerDefault)
+            #expect(hotkeys.live.map(\.combo) == [.default, .readerDefault])
+        }
+        settings.handle(.closed)
+    }
+
+    /// The live window would save its frame in the real defaults; a scenario swaps in one that doesn't.
+    @Test func scenariosReplaceTheLiveSettingsWindowAndKeepASpy() {
+        var live = environment()
+        live.settingsPresenter = SettingsWindowController()
+        let original = live.settingsPresenter
+        Scenario.firstLaunch.apply(to: &live)
+        #expect(live.settingsPresenter is SettingsWindowController)
+        #expect(live.settingsPresenter !== original)
+
+        let spy = SpySettingsPresenter()
+        var spied = environment()
+        spied.settingsPresenter = spy
+        Scenario.firstLaunch.apply(to: &spied)
+        #expect(spied.settingsPresenter === spy)
     }
 }

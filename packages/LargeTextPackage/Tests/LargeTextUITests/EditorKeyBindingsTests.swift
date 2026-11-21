@@ -164,4 +164,21 @@ struct EditorKeyBindingsTests {
         #expect(action(0x0C, "q", .command) == nil)
         #expect(action(0x2F, ".", .command) == nil)
     }
+
+    // MARK: Settings (⌘,)
+
+    @Test func commandCommaOpensSettings() {
+        #expect(action(K.comma, ",", .command) == .openSettings)
+    }
+
+    @Test func commandCommaOnOtherLayouts() {
+        #expect(action(K.comma, "б", .command) == .openSettings)   // Russian: non-ASCII, by key code
+        #expect(action(0x0D, ",", .command) == .openSettings)      // Dvorak "," on ANSI "w"
+        #expect(action(K.comma, "w", .command) == nil)             // Dvorak "w" on ANSI ","
+    }
+
+    @Test(arguments: [Modifiers.shift, [.command, .shift], [.command, .option], [.command, .control], []])
+    func otherCommaCombosDontOpenSettings(_ modifiers: Modifiers) {
+        #expect(action(K.comma, ",", modifiers) == nil)
+    }
 }

@@ -10,9 +10,13 @@ import os
 ///   1 = ⌘, 2 = ⌥, 4 = ⌃, 8 = ⇧) }`.
 /// - `LargeText.clipboardRestore`: string `none` | `restore` | `restore:<bytes>`
 ///   (see `ClipboardRestorePolicy.init?(defaultsString:)`).
-/// - `LargeText.readerHotkey`: dictionary, same format as `LargeText.hotkey`.
+/// - `LargeText.readerHotkey`: dictionary, same format as `LargeText.hotkey`, or the string `off` (reader
+///   turned off). Missing means the default ⌃⌥⌘R, so turning it off writes `off` instead of removing the key.
+/// - `LargeText.readerFontSize`: number (points), like `LargeText.fontSize`. Missing means "same as
+///   `LargeText.fontSize`"; it is written on the first reader zoom.
 /// - `LargeText.readerHoldThreshold`: number (milliseconds), e.g. `defaults write <id> LargeText.readerHoldThreshold -int 250`.
 /// - `LargeText.followingUnit`, `LargeText.pinnedUnit`: string `sentence` | `line` | `paragraph`.
+/// - `LargeText.hasCompletedFirstLaunch`: bool; missing means `false`.
 ///
 /// Missing or malformed values fall back to the defaults (and are logged).
 @MainActor
@@ -22,10 +26,15 @@ package final class UserDefaultsPreferencesStore: PreferencesStore {
         static let hotkey = "LargeText.hotkey"
         static let clipboardRestore = "LargeText.clipboardRestore"
         static let readerHotkey = "LargeText.readerHotkey"
+        static let readerFontSize = "LargeText.readerFontSize"
         static let readerHoldThreshold = "LargeText.readerHoldThreshold"
         static let followingUnit = "LargeText.followingUnit"
         static let pinnedUnit = "LargeText.pinnedUnit"
+        static let hasCompletedFirstLaunch = "LargeText.hasCompletedFirstLaunch"
     }
+
+    /// The `LargeText.readerHotkey` string that turns the reader off.
+    static let readerHotkeyOff = "off"
 
     enum HotkeyField {
         static let keyCode = "keyCode"
@@ -41,18 +50,14 @@ package final class UserDefaultsPreferencesStore: PreferencesStore {
     }
 
     package var fontSize: FontSize {
-        get {
-            guard let number = defaults.object(forKey: Key.fontSize) as? NSNumber else { return Self.defaultFontSize }
-            let points = number.doubleValue
-            guard points.isFinite, points > 0 else {
-                Logger.platform.notice("Ignoring invalid \(Key.fontSize, privacy: .public): \(points)")
-                return Self.defaultFontSize
-            }
-            return FontSize(points: points)
-        }
-        set {
-            defaults.set(newValue.points, forKey: Key.fontSize)
-        }
+        get { fontSize(forKey: Key.fontSize) ?? Self.defaultFontSize }
+        set { defaults.set(newValue.points, forKey: Key.fontSize) }
+    }
+
+    /// Missing or invalid → the current `fontSize`.
+    package var readerFontSize: FontSize {
+        get { fontSize(forKey: Key.readerFontSize) ?? fontSize }
+        set { defaults.set(newValue.points, forKey: Key.readerFontSize) }
     }
 
     package var hotkey: KeyCombo {
@@ -74,9 +79,22 @@ package final class UserDefaultsPreferencesStore: PreferencesStore {
         }
     }
 
-    package var readerHotkey: KeyCombo {
-        get { keyCombo(forKey: Key.readerHotkey, default: .readerDefault) }
-        set { setKeyCombo(newValue, forKey: Key.readerHotkey) }
+    /// Case-insensitive `off`, ignoring surrounding whitespace, is `nil`; any other string is malformed.
+    package var readerHotkey: KeyCombo? {
+        get {
+            if let string = defaults.object(forKey: Key.readerHotkey) as? String,
+               string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == Self.readerHotkeyOff {
+                return nil
+            }
+            return keyCombo(forKey: Key.readerHotkey, default: .readerDefault)
+        }
+        set {
+            if let newValue {
+                setKeyCombo(newValue, forKey: Key.readerHotkey)
+            } else {
+                defaults.set(Self.readerHotkeyOff, forKey: Key.readerHotkey)
+            }
+        }
     }
 
     package var readerHoldThreshold: Duration {
@@ -105,7 +123,22 @@ package final class UserDefaultsPreferencesStore: PreferencesStore {
         set { defaults.set(newValue.rawValue, forKey: Key.pinnedUnit) }
     }
 
+    package var hasCompletedFirstLaunch: Bool {
+        get { defaults.bool(forKey: Key.hasCompletedFirstLaunch) }
+        set { defaults.set(newValue, forKey: Key.hasCompletedFirstLaunch) }
+    }
+
     // MARK: - Stored formats
+
+    /// `nil` when missing; also `nil`, and logged, when not a positive finite number.
+    private func fontSize(forKey key: String) -> FontSize? {
+        guard let object = defaults.object(forKey: key) else { return nil }
+        guard let points = (object as? NSNumber)?.doubleValue, points.isFinite, points > 0 else {
+            Logger.platform.notice("Ignoring invalid \(key, privacy: .public)")
+            return nil
+        }
+        return FontSize(points: points)
+    }
 
     private func keyCombo(forKey key: String, default defaultCombo: KeyCombo) -> KeyCombo {
         guard let object = defaults.object(forKey: key) else { return defaultCombo }

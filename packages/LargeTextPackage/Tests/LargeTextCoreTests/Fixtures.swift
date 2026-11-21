@@ -31,6 +31,7 @@ final class CoordinatorHarness {
     let overlay: SpyOverlay
     let notices: SpyNotices
     let inserter: SpyInserter
+    let pasteboard: FakePasteboard
     let coordinator: EditingSessionCoordinator
 
     init(target: FocusTarget = Fixtures.target(), permissions: Permissions = .allGranted, inserter: (any TextInserting)? = nil) {
@@ -39,10 +40,12 @@ final class CoordinatorHarness {
         overlay = SpyOverlay(log: log)
         notices = SpyNotices(log: log)
         self.inserter = SpyInserter(log: log)
+        pasteboard = FakePasteboard(log: log)
         coordinator = EditingSessionCoordinator(dependencies: CoreDependencies(
             focus: focus,
             permissions: self.permissions,
             inserter: inserter ?? self.inserter,
+            pasteboard: pasteboard,
             overlay: overlay,
             notices: notices,
             preferences: preferences

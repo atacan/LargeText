@@ -38,6 +38,7 @@ package struct NoticeContent: Equatable, Sendable {
         case .noEditableTarget: "No text field was focused"
         case .targetChanged: "The app changed before inserting"
         case .modifiersHeld: "Keys were still held down"
+        case .settingsOpened: "The editor closed to open Settings"
         }
     }
 }

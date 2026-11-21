@@ -15,12 +15,16 @@ package final class ReadingSessionCoordinator {
     package var isClosing: Bool { gesture.phase == .closing }
     /// Whether the stuck-key check is armed: it then runs on every pointer tick while following.
     package var isCheckingKeyState: Bool { session?.isCheckingKeyState ?? false }
+    /// Called once ⌘, on the pinned card has started closing it; Kit opens Settings, which awaits `close()`.
+    package var onOpenSettings: (@MainActor () -> Void)?
 
     private let dependencies: ReaderDependencies
     private var gesture = ReaderGesture()
     private var session: ReadingSession?
     /// The fade in progress; a second `close()` awaits it too.
     private var dismissal: Task<Void, Never>?
+    /// The reader shortcut as read by the press that starts a session, for its stuck-key check.
+    private var pressedCombo: KeyCombo?
 
     package init(dependencies: ReaderDependencies) {
         self.dependencies = dependencies
@@ -32,12 +36,19 @@ package final class ReadingSessionCoordinator {
         switch event.phase {
         case .pressed:
             if gesture.phase == .idle {
+                // Off means unregistered, so no press should arrive; a store changed under a live
+                // registration is the only way here.
+                guard let combo = dependencies.preferences.readerHotkey else {
+                    Logger.core.error("Reader: shortcut is off; session not started")
+                    return
+                }
                 guard dependencies.permissions.current.accessibility == .granted else {
                     Logger.core.info("Reader: Accessibility not granted; session not started")
                     dependencies.notices.show(.readerNeedsAccessibility)
                     return
                 }
                 gesture.holdThreshold = dependencies.preferences.readerHoldThreshold
+                pressedCombo = combo
             }
             send(.pressed(at: event.at))
         case .released:
@@ -45,7 +56,7 @@ package final class ReadingSessionCoordinator {
         }
     }
 
-    /// Intents from the card: ⎋, backdrop click, resign key, zoom. Ignored for a stale session.
+    /// Intents from the card: ⎋, backdrop click, resign key, zoom, ⌘,. Ignored for a stale session.
     package func handle(_ intent: ReaderIntent) {
         guard let session, session.id == intent.sessionID, !isClosing else {
             Logger.core.debug("Reader intent \(String(describing: intent.kind)) for \(intent.sessionID) ignored in \(String(describing: self.phase))")
@@ -56,6 +67,9 @@ package final class ReadingSessionCoordinator {
             send(.forceClose(.user(reason)))
         case .zoom(let step):
             zoom(step, in: session)
+        case .openSettings:
+            send(.forceClose(.user(.userCancelled)))
+            onOpenSettings?()
         }
     }
 
@@ -106,13 +120,19 @@ package final class ReadingSessionCoordinator {
     // MARK: - Effects
 
     private func startFollowing() {
+        guard let combo = pressedCombo else {
+            // Every idle press sets it; never leave the gesture following without a session regardless.
+            Logger.core.error("Reader: no shortcut for the new session; closing")
+            send(.forceClose(.requested))
+            return
+        }
         let preferences = dependencies.preferences
         let session = ReadingSession(
             policy: .standard,
-            combo: preferences.readerHotkey,
+            combo: combo,
             followingUnit: preferences.followingUnit,
             pinnedUnit: preferences.pinnedUnit,
-            fontSize: FontSizePolicy.clamp(preferences.fontSize)
+            fontSize: FontSizePolicy.clamp(preferences.readerFontSize)
         )
         self.session = session
         Logger.core.info("Reader session \(session.id): following")
@@ -342,7 +362,7 @@ package final class ReadingSessionCoordinator {
 
     private func zoom(_ step: ZoomStep, in session: ReadingSession) {
         session.fontSize = FontSizePolicy.apply(step, to: session.fontSize)
-        dependencies.preferences.fontSize = session.fontSize
+        dependencies.preferences.readerFontSize = session.fontSize
         guard var shown = session.shown else { return }
         shown.chrome.fontSize = session.fontSize
         session.shown = shown

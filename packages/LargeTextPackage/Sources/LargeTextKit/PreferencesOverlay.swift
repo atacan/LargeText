@@ -52,13 +52,23 @@ final class PreferencesOverlay: PreferencesStore {
         set { base.clipboardRestore = newValue }
     }
 
-    var readerHotkey: KeyCombo {
+    var readerHotkey: KeyCombo? {
         get { base.readerHotkey }
         set { base.readerHotkey = newValue }
+    }
+
+    var readerFontSize: FontSize {
+        get { base.readerFontSize }
+        set { base.readerFontSize = newValue }
     }
 
     var pinnedUnit: ReadGranularity {
         get { base.pinnedUnit }
         set { base.pinnedUnit = newValue }
+    }
+
+    var hasCompletedFirstLaunch: Bool {
+        get { base.hasCompletedFirstLaunch }
+        set { base.hasCompletedFirstLaunch = newValue }
     }
 }

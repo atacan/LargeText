@@ -52,4 +52,11 @@ struct ReaderKeyBindingsTests {
         #expect(action(K.c, "c") == nil)
         #expect(action(0x7D, "\u{F701}") == nil) // ↓ scrolls
     }
+
+    @Test func commandCommaOpensSettings() {
+        #expect(action(K.comma, ",", .command) == .openSettings)
+        #expect(action(K.comma, "б", .command) == .openSettings)   // Russian
+        #expect(action(K.comma, ",", [.command, .shift]) == nil)
+        #expect(action(K.comma, ",") == nil)
+    }
 }

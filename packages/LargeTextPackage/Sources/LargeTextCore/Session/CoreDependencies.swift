@@ -5,6 +5,8 @@ package struct CoreDependencies {
     /// For `TargetHints` (via `InsertionRoute`).
     package var permissions: any PermissionsProviding
     package var inserter: any TextInserting
+    /// For ⌘, with text in the editor: the text is copied before Settings opens (`ClipboardWriter`).
+    package var pasteboard: any PasteboardClient
     package var overlay: any OverlayPresenting
     package var notices: any NoticePresenting
     package var preferences: any PreferencesStore
@@ -13,6 +15,7 @@ package struct CoreDependencies {
         focus: any FocusCapturing,
         permissions: any PermissionsProviding,
         inserter: any TextInserting,
+        pasteboard: any PasteboardClient,
         overlay: any OverlayPresenting,
         notices: any NoticePresenting,
         preferences: any PreferencesStore
@@ -20,6 +23,7 @@ package struct CoreDependencies {
         self.focus = focus
         self.permissions = permissions
         self.inserter = inserter
+        self.pasteboard = pasteboard
         self.overlay = overlay
         self.notices = notices
         self.preferences = preferences

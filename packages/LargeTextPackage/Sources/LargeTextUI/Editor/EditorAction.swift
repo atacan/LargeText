@@ -7,6 +7,8 @@ package enum EditorAction: Equatable, Sendable {
     case newline
     case zoom(ZoomStep)
     case standardEdit(StandardEdit)
+    /// ⌘,: closes the editor (copying any text), then Settings opens.
+    case openSettings
 }
 
 /// Edits performed by direct calls on the text view (never via the responder chain or `NSApp.mainMenu`).
