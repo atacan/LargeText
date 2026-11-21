@@ -42,8 +42,14 @@ Requires macOS 14 or later.
 
   ```sh
   brew tap atacan/largetext https://github.com/atacan/LargeText
+  brew trust atacan/largetext
   brew install --cask largetext
   ```
+
+  Recent Homebrew versions refuse casks from a third-party tap until you trust it; on older versions
+  without `brew trust`, skip that line.
+
+  The app updates itself (**Check for Updates…** in the menu), so `brew upgrade` leaves it alone.
 
 LargeText updates itself (*Check for Updates…* in the status menu, and daily checks you can turn off in
 Settings). Releases are signed with Developer ID and notarized by Apple; see
