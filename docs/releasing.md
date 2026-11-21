@@ -37,7 +37,7 @@ though.
 |---|---|
 | DMG | Release asset `LargeText-X.Y.Z.dmg` on tag `vX.Y.Z` |
 | Sparkle feed | Release asset `appcast.xml`. Every release carries the whole feed, and the app reads `https://github.com/atacan/LargeText/releases/latest/download/appcast.xml` (`SPARKLE_FEED_URL` in the Xcode project). |
-| Homebrew cask | [`Casks/largetext.rb`](../Casks/largetext.rb) on `main`, rewritten and committed by each release. This repository is the tap: `brew tap atacan/largetext https://github.com/atacan/LargeText`. |
+| Homebrew cask | [`Casks/largetext.rb`](../Casks/largetext.rb) on `main`, rewritten and committed by each release. This repository is the tap: `brew tap atacan/largetext https://github.com/atacan/LargeText`, then `brew trust atacan/largetext` (recent Homebrew refuses untrusted third-party taps). |
 | Sparkle public key | `SPARKLE_PUBLIC_ED_KEY` in the Xcode project, which goes into `Info.plist` through [`xcode/LargeText/Info.plist`](../xcode/LargeText/Info.plist) |
 
 Because the feed URL is `releases/latest`, never mark a release as a pre-release or edit which release is
@@ -117,10 +117,11 @@ gh label create release:major --color B60205 --description "Release as a major v
 gh label create skip-release  --color CCCCCC --description "Merge without releasing"
 ```
 
-### 6. Going public
+### 6. Public repository
 
-Sparkle and Homebrew download without signing in, so updates and `brew install` only work once the
-repository is public. While it is private, releases still build and you can download them yourself.
+Sparkle and Homebrew download without signing in, so updates and `brew install` only work while the
+repository is public (it has been since the first release, 0.1.0). If it is ever made private, releases
+still build, but installed copies stop receiving updates.
 
 If you protect `main` later, the release workflow still has to push the cask commit: let the GitHub Actions
 bot bypass the rule (or the ruleset), or the cask step fails after the release is already published. Fix
