@@ -78,6 +78,10 @@ package final class SettingsCoordinator {
             setRestoresClipboard(restores)
         case .setLaunchAtLogin(let enabled):
             setLaunchAtLogin(enabled)
+        case .setAutomaticallyChecksForUpdates(let enabled):
+            availableUpdater?.automaticallyChecksForUpdates = enabled
+        case .checkForUpdates:
+            availableUpdater?.checkForUpdates()
         case .grantAccess:
             // D6: the request adds the app to the Accessibility list (and prompts); the pane shows it there.
             dependencies.permissions.requestAccessibility()
@@ -187,6 +191,11 @@ package final class SettingsCoordinator {
         }
     }
 
+    private var availableUpdater: (any UpdateChecking)? {
+        guard let updater = dependencies.updater, updater.isAvailable else { return nil }
+        return updater
+    }
+
     /// Every default, then one registration of the default shortcuts. Launch at login is system state, and
     /// `hasCompletedFirstLaunch` isn't a setting; both are left alone.
     private func resetAll() {
@@ -269,6 +278,8 @@ package final class SettingsCoordinator {
             permission: dependencies.permissions.current.setup,
             loginItem: dependencies.loginItem?.status,
             loginItemError: loginItemError,
+            automaticallyChecksForUpdates: availableUpdater?.automaticallyChecksForUpdates,
+            canCheckForUpdates: availableUpdater?.canCheckForUpdates ?? false,
             context: dependencies.context
         )
     }

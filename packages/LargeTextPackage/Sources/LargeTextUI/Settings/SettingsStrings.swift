@@ -12,6 +12,7 @@ package enum SettingsStrings {
     package static let clipboardSection = "Clipboard"
     package static let accessibilitySection = "Accessibility"
     package static let startupSection = "Startup"
+    package static let updatesSection = "Updates"
 
     // MARK: - Shortcuts
 
@@ -120,6 +121,12 @@ package enum SettingsStrings {
             + "Without it, the editor copies to the clipboard instead."
         }
     }
+
+    // MARK: - Updates
+
+    package static let automaticallyChecksForUpdates = "Check for updates automatically"
+    package static let checkForUpdatesNow = "Check Now"
+    package static let updatesFootnote = "LargeText checks once a day and asks before installing an update."
 
     // MARK: - Launch at login
 

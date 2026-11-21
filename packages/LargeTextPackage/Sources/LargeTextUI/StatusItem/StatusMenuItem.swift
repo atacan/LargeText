@@ -10,6 +10,7 @@ package enum StatusMenuAction: Equatable, Sendable {
     case openEditor
     case readTextUnderPointer
     case openSettings
+    case checkForUpdates
     case grantAccess
     case relaunch
     case quit

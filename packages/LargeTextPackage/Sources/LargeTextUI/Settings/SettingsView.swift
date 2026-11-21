@@ -30,6 +30,9 @@ package struct SettingsView: View {
             if let status = state.loginItem {
                 startupSection(status)
             }
+            if let automatic = state.automaticallyChecksForUpdates {
+                updatesSection(automatic)
+            }
             Section {
                 HStack {
                     Spacer()
@@ -265,6 +268,28 @@ package struct SettingsView: View {
             }
         } header: {
             Text(SettingsStrings.startupSection)
+        }
+    }
+
+    // MARK: - Updates
+
+    private func updatesSection(_ automatic: Bool) -> some View {
+        let model = model
+        let isOn = Binding(
+            get: { automatic },
+            set: { model.send(.setAutomaticallyChecksForUpdates($0)) }
+        )
+        return Section {
+            LabeledContent {
+                Button(SettingsStrings.checkForUpdatesNow) { model.send(.checkForUpdates) }
+                    .disabled(!state.canCheckForUpdates)
+            } label: {
+                Toggle(SettingsStrings.automaticallyChecksForUpdates, isOn: isOn)
+            }
+        } header: {
+            Text(SettingsStrings.updatesSection)
+        } footer: {
+            footnote(SettingsStrings.updatesFootnote)
         }
     }
 

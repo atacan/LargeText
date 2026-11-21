@@ -1,0 +1,52 @@
+# Checks every pull request: package tests, an unsigned app build, and the release scripts. Uses no secrets,
+# so it is safe for pull requests from forks.
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Package tests and app build
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Show the toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Swift package tests
+        working-directory: packages/LargeTextPackage
+        run: swift test
+
+      - name: Build the app (unsigned)
+        run: |
+          xcodebuild build -quiet \
+            -project xcode/LargeText/LargeText.xcodeproj \
+            -scheme LargeText \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO
+
+  scripts:
+    name: Release scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: ShellCheck
+        run: |
+          cd scripts/release
+          shellcheck -x -e SC1091,SC2016 ./*.sh ../release.sh

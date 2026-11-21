@@ -16,6 +16,8 @@ package final class StatusItemController: NSObject, NSMenuDelegate {
     private let onOpenEditor: @MainActor () -> Void
     private let onReadTextUnderPointer: (@MainActor () -> Void)?
     private let onOpenSettings: (@MainActor () -> Void)?
+    /// `nil` leaves "Check for Updates…" out.
+    private let onCheckForUpdates: (@MainActor () -> Void)?
     private var statusItem: NSStatusItem?
 
     package init(
@@ -24,7 +26,8 @@ package final class StatusItemController: NSObject, NSMenuDelegate {
         permissions: any PermissionsProviding,
         onOpenEditor: @escaping @MainActor () -> Void,
         onReadTextUnderPointer: (@MainActor () -> Void)? = nil,
-        onOpenSettings: (@MainActor () -> Void)? = nil
+        onOpenSettings: (@MainActor () -> Void)? = nil,
+        onCheckForUpdates: (@MainActor () -> Void)? = nil
     ) {
         self.hotkey = hotkey
         self.readerHotkey = readerHotkey
@@ -32,6 +35,7 @@ package final class StatusItemController: NSObject, NSMenuDelegate {
         self.onOpenEditor = onOpenEditor
         self.onReadTextUnderPointer = onReadTextUnderPointer
         self.onOpenSettings = onOpenSettings
+        self.onCheckForUpdates = onCheckForUpdates
         super.init()
     }
 
@@ -75,7 +79,8 @@ package final class StatusItemController: NSObject, NSMenuDelegate {
             hotkey: hotkey,
             readerHotkey: readerHotkey,
             permissions: permissions.current,
-            hotkeyUnavailable: hotkeyUnavailable
+            hotkeyUnavailable: hotkeyUnavailable,
+            showsCheckForUpdates: onCheckForUpdates != nil
         )
         for item in items {
             menu.addItem(makeMenuItem(item))
@@ -107,6 +112,8 @@ package final class StatusItemController: NSObject, NSMenuDelegate {
             onReadTextUnderPointer?()
         case .openSettings:
             onOpenSettings?()
+        case .checkForUpdates:
+            onCheckForUpdates?()
         case .grantAccess:
             // D6, as in Settings: the request adds LargeText to the Accessibility list (and prompts while it
             // isn't trusted); the pane then shows it there.
@@ -124,6 +131,7 @@ package final class StatusItemController: NSObject, NSMenuDelegate {
         case .openEditor: #selector(openEditor(_:))
         case .readTextUnderPointer: #selector(readTextUnderPointer(_:))
         case .openSettings: #selector(openSettings(_:))
+        case .checkForUpdates: #selector(checkForUpdates(_:))
         case .grantAccess: #selector(grantAccess(_:))
         case .relaunch: #selector(relaunch(_:))
         case .quit: #selector(quit(_:))
@@ -133,6 +141,7 @@ package final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func openEditor(_ sender: Any?) { perform(.openEditor) }
     @objc private func readTextUnderPointer(_ sender: Any?) { perform(.readTextUnderPointer) }
     @objc private func openSettings(_ sender: Any?) { perform(.openSettings) }
+    @objc private func checkForUpdates(_ sender: Any?) { perform(.checkForUpdates) }
     @objc private func grantAccess(_ sender: Any?) { perform(.grantAccess) }
     @objc private func relaunch(_ sender: Any?) { perform(.relaunch) }
     @objc private func quit(_ sender: Any?) { perform(.quit) }

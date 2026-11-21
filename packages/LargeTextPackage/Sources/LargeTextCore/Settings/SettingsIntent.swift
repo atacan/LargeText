@@ -19,6 +19,9 @@ package enum SettingsIntent: Equatable, Sendable {
     case setPinnedUnit(ReadGranularity)
     case setRestoresClipboard(Bool)
     case setLaunchAtLogin(Bool)
+    case setAutomaticallyChecksForUpdates(Bool)
+    /// "Check Now": a user-initiated update check, which shows its own window.
+    case checkForUpdates
     /// "Grant Access…": adds the app to the Accessibility list, then opens System Settings (D6).
     case grantAccess
     /// "Relaunch to finish setup".
