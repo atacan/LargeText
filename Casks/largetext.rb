@@ -1,7 +1,7 @@
 # Written by scripts/release/update-cask.sh on every release; edit the script, not this file.
 cask "largetext" do
-  version "0.1.0"
-  sha256 "8d50af3a8db88a4dc055c8107fd620692b585917b5385b77ca55f552f8903d4d"
+  version "0.1.1"
+  sha256 "9f5dad9ae3c4b6ae1008ea163f1e13741c45694993c047a175709a045ac4c162"
 
   url "https://github.com/atacan/LargeText/releases/download/v#{version}/LargeText-#{version}.dmg"
   name "LargeText"
